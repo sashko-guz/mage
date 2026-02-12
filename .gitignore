@@ -1,0 +1,22 @@
+# Output of the go build program
+/bin/
+/mage
+/server
+
+# Go workspace file
+go.work
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.claude/
+
+# Project related files
+storages.json
+.cache
+
+# MacOS specific files
+.DS_Store
