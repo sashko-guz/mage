@@ -12,11 +12,11 @@ import (
 )
 
 // NewStorage creates a fully configured storage with all cache layers applied
-func NewStorage(cfg StorageItem) (Storage, error) {
+func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 	// Step 1: Create base storage (S3 or local)
 	baseStorage, err := createBaseStorage(cfg)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Build log message parts
@@ -25,8 +25,8 @@ func NewStorage(cfg StorageItem) (Storage, error) {
 
 	// Step 2: Check if caching is configured
 	if cfg.Cache == nil {
-		log.Printf("[Storage:%s] Initialized (%s)", cfg.Name, strings.Join(logParts, ", "))
-		return baseStorage, nil
+		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
+		return baseStorage, cfg.SignatureSecretKey, nil
 	}
 
 	// Check if any cache layer is enabled
@@ -34,8 +34,8 @@ func NewStorage(cfg StorageItem) (Storage, error) {
 	memoryEnabled := cfg.Cache.Memory != nil && cfg.Cache.Memory.Enabled != nil && *cfg.Cache.Memory.Enabled
 
 	if !diskEnabled && !memoryEnabled {
-		log.Printf("[Storage:%s] Initialized (%s)", cfg.Name, strings.Join(logParts, ", "))
-		return baseStorage, nil
+		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
+		return baseStorage, cfg.SignatureSecretKey, nil
 	}
 
 	// Add cache info to log
@@ -53,42 +53,42 @@ func NewStorage(cfg StorageItem) (Storage, error) {
 	// Step 3: Wrap with cache layers
 	cachedStorage, err := wrapWithCache(baseStorage, cfg)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	log.Printf("[Storage:%s] Initialized (%s)", cfg.Name, strings.Join(logParts, ", "))
-	return cachedStorage, nil
+	log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
+	return cachedStorage, cfg.SignatureSecretKey, nil
 }
 
 // createBaseStorage creates the underlying storage driver (S3 or local)
-func createBaseStorage(cfg StorageItem) (Storage, error) {
+func createBaseStorage(cfg *StorageConfig) (Storage, error) {
 	switch cfg.Driver {
 	case DriverS3:
 		if cfg.Bucket == "" {
-			return nil, fmt.Errorf("storage '%s': bucket is required for S3 driver", cfg.Name)
+			return nil, fmt.Errorf("bucket is required for S3 driver")
 		}
 		if cfg.Region == "" {
 			cfg.Region = "us-east-1" // default region
 		}
 		// Require credentials when using custom base_url (S3-compatible storage)
 		if cfg.BaseURL != "" && (cfg.AccessKey == "" || cfg.SecretKey == "") {
-			return nil, fmt.Errorf("storage '%s': access_key and secret_key are required when using base_url for S3-compatible storage", cfg.Name)
+			return nil, fmt.Errorf("access_key and secret_key are required when using base_url for S3-compatible storage")
 		}
 		return drivers.NewS3Client(cfg.Region, cfg.AccessKey, cfg.SecretKey, cfg.Bucket, cfg.BaseURL, cfg.S3HTTPConfig)
 
 	case DriverLocal:
 		if cfg.Root == "" {
-			return nil, fmt.Errorf("storage '%s': root is required for local driver", cfg.Name)
+			return nil, fmt.Errorf("root is required for local driver")
 		}
 		return drivers.NewLocalStorage(cfg.Root)
 
 	default:
-		return nil, fmt.Errorf("storage '%s': unknown driver '%s'", cfg.Name, cfg.Driver)
+		return nil, fmt.Errorf("unknown driver '%s'", cfg.Driver)
 	}
 }
 
 // wrapWithCache wraps the base storage with cache layers (disk and/or memory)
-func wrapWithCache(baseStorage Storage, cfg StorageItem) (Storage, error) {
+func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 	diskEnabled := cfg.Cache.Disk != nil && cfg.Cache.Disk.Enabled != nil && *cfg.Cache.Disk.Enabled
 	memoryEnabled := cfg.Cache.Memory != nil && cfg.Cache.Memory.Enabled != nil && *cfg.Cache.Memory.Enabled
 
@@ -98,16 +98,16 @@ func wrapWithCache(baseStorage Storage, cfg StorageItem) (Storage, error) {
 
 	// Disk cache is required as the base layer
 	if !diskEnabled {
-		return nil, fmt.Errorf("storage '%s': disk cache must be enabled when using cache", cfg.Name)
+		return nil, fmt.Errorf("disk cache must be enabled when using cache")
 	}
 
 	if cfg.Cache.Disk.Dir == "" {
-		return nil, fmt.Errorf("storage '%s': cache dir is required when cache is enabled", cfg.Name)
+		return nil, fmt.Errorf("cache dir is required when cache is enabled")
 	}
 
 	// Create cache directory if it doesn't exist
 	if err := os.MkdirAll(cfg.Cache.Disk.Dir, 0755); err != nil {
-		return nil, fmt.Errorf("storage '%s': failed to create cache directory: %w", cfg.Name, err)
+		return nil, fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
 	// Build disk cache configuration
@@ -122,7 +122,6 @@ func wrapWithCache(baseStorage Storage, cfg StorageItem) (Storage, error) {
 	}
 
 	cacheConfig := CachedStorageConfig{
-		StorageName: cfg.Name,
 		DiskCache: &DiskCacheConfig{
 			Enabled:        true,
 			BasePath:       cfg.Cache.Disk.Dir,
@@ -161,8 +160,7 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 	}
 
 	cs := &CachedStorage{
-		underlying:  underlying,
-		storageName: cfg.StorageName,
+		underlying: underlying,
 	}
 
 	// Initialize memory cache first (if enabled and configured)
@@ -176,16 +174,16 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 		}
 
 		memCache, err := cache.NewMemoryCache(cache.MemoryCacheConfig{
-			Name:     cfg.StorageName,
+			Name:     "",
 			MaxSize:  memorySizeBytes,
 			MaxItems: maxItems,
 			TTL:      cfg.DiskCache.TTL,
 		})
 		if err != nil {
-			log.Printf("[CachedStorage:%s] Failed to init memory cache: %v", cfg.StorageName, err)
+			log.Printf("[CachedStorage] Failed to init memory cache: %v", err)
 		} else {
 			cs.memoryCache = memCache
-			log.Printf("[CachedStorage:%s] Enabled in-memory cache: %dMB, max items: %d", cfg.StorageName, cfg.MemoryCache.MaxSizeMB, maxItems)
+			log.Printf("[CachedStorage] Enabled in-memory cache: %dMB, max items: %d", cfg.MemoryCache.MaxSizeMB, maxItems)
 		}
 	}
 
@@ -200,7 +198,7 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 		cfg.DiskCache.BasePath,
 		cfg.DiskCache.TTL,
 		cfg.DiskCache.ClearOnStartup,
-		cfg.StorageName,
+		"",
 		diskCacheMaxBytes,
 	)
 	if err != nil {
@@ -209,25 +207,4 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 
 	cs.diskCache = diskCache
 	return cs, nil
-}
-
-// InitializeStorages creates all configured storages from the configuration
-func InitializeStorages(config *StorageConfig) (map[string]Storage, error) {
-	if len(config.Storages) == 0 {
-		return nil, fmt.Errorf("no storages configured")
-	}
-
-	log.Printf("[Storage] Initializing %d storage(s)…", len(config.Storages))
-
-	storages := make(map[string]Storage)
-	for _, cfg := range config.Storages {
-		store, err := NewStorage(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("storage '%s': %w", cfg.Name, err)
-		}
-		storages[cfg.Name] = store
-	}
-
-	log.Printf("[Storage] All storages initialized successfully")
-	return storages, nil
 }

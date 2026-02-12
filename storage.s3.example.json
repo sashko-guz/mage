@@ -1,0 +1,31 @@
+{
+  "driver": "s3",
+  "bucket": "my-bucket",
+  "region": "us-west-1",
+  "access_key": "YOUR_ACCESS_KEY",
+  "secret_key": "YOUR_SECRET_KEY",
+  "signature_secret_key": "your-secret-key-here",
+  "s3_http_config": {
+    "max_idle_conns": 150,
+    "max_idle_conns_per_host": 150,
+    "max_conns_per_host": 0,
+    "idle_conn_timeout_sec": 90,
+    "connect_timeout_sec": 10,
+    "request_timeout_sec": 30,
+    "response_header_timeout_sec": 10
+  },
+  "cache": {
+    "memory": {
+      "enabled": true,
+      "max_size_mb": 1024,
+      "max_items": 1000
+    },
+    "disk": {
+      "enabled": true,
+      "ttl_seconds": 100,
+      "max_size_mb": 10240,
+      "dir": "/var/cache/mage",
+      "clear_on_startup": false
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "driver": "local",
+  "root": "/var/www/uploads",
+  "signature_secret_key": "your-secret-key-here",
+  "cache": {
+    "memory": {
+      "enabled": true,
+      "max_size_mb": 512,
+      "max_items": 1000
+    },
+    "disk": {
+      "enabled": true,
+      "ttl_seconds": 300,
+      "max_size_mb": 5120,
+      "dir": "/var/cache/mage",
+      "clear_on_startup": false
+    }
+  }
+}

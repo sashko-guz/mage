@@ -17,7 +17,6 @@ type ThumbnailRequest struct {
 	Format            string
 	Quality           int
 	Fit               string
-	Storage           string
 	Path              string
 	ProvidedSignature string // Signature from URL
 	FilterString      string // Raw filter string for signature validation
@@ -31,30 +30,30 @@ var (
 )
 
 // ParseURL parses a URL path in the format:
-// With signature (when secretKey configured): /{storage}/thumbs/{signature}/{width}x{height}/[filters:{filters}/]{path}
-// Without signature (when secretKey empty): /{storage}/thumbs/{width}x{height}/[filters:{filters}/]{path}
+// With signature (when secretKey configured): /thumbs/{signature}/{width}x{height}/[filters:{filters}/]{path}
+// Without signature (when secretKey empty): /thumbs/{width}x{height}/[filters:{filters}/]{path}
 // Signature is HMAC-SHA256 hash that validates all parameters after it.
 // Filters are optional and must be prefixed with "filters:" if present. Multiple filters are separated by semicolons.
-// Examples with signature and filters: /s3/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/path-in-aws.jpeg
-// Examples with signature, no filters: /local/thumbs/a1b2c3d4e5f6g7h8/200x350/image.jpg
-// Examples without signature: /local/thumbs/200x350/image.jpg
+// Examples with signature and filters: /thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/path-in-aws.jpeg
+// Examples with signature, no filters: /thumbs/a1b2c3d4e5f6g7h8/200x350/image.jpg
+// Examples without signature: /thumbs/200x350/image.jpg
 //
-//	/s3/thumbs/200x350/filters:format(webp)/image.jpg
+//	/thumbs/200x350/filters:format(webp)/image.jpg
 func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 	// Remove leading slash
 	path = strings.TrimPrefix(path, "/")
 
 	// Split the path into parts
-	// Format with signature: {storage}/thumbs/{signature}/{size}/[filters:{filters}/]{path}
-	// Format without signature: {storage}/thumbs/{size}/[filters:{filters}/]{path}
-	parts := strings.SplitN(path, "/", 6)
-	if len(parts) < 4 {
-		return nil, fmt.Errorf("invalid path format, expected /{storage}/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}")
+	// Format with signature: thumbs/{signature}/{size}/[filters:{filters}/]{path}
+	// Format without signature: thumbs/{size}/[filters:{filters}/]{path}
+	parts := strings.SplitN(path, "/", 5)
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("invalid path format, expected /thumbs/[{signature}/]{size}/[filters:{filters}/]{path}")
 	}
 
-	// Check if it starts with storage then "thumbs"
-	if parts[1] != "thumbs" {
-		return nil, fmt.Errorf("path must contain /thumbs after storage")
+	// Check if it starts with "thumbs"
+	if parts[0] != "thumbs" {
+		return nil, fmt.Errorf("path must start with /thumbs")
 	}
 
 	req := &ThumbnailRequest{
@@ -63,30 +62,27 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 		Fit:     "cover", // Default fit mode - scales and crops to exact dimensions
 	}
 
-	// Extract storage type (e.g., "s3", "local")
-	req.Storage = strings.ToLower(parts[0])
-
-	// Determine if we have a signature by checking if parts[2] matches size format
-	// If parts[2] is in format NxN (e.g., "200x350"), then no signature
-	// Otherwise, parts[2] is signature and parts[3] is size
+	// Determine if we have a signature by checking if parts[1] matches size format
+	// If parts[1] is in format NxN (e.g., "200x350"), then no signature
+	// Otherwise, parts[1] is signature and parts[2] is size
 	var sizeIndex int
-	hasSignatureInURL := !sizeRegex.MatchString(parts[2])
+	hasSignatureInURL := !sizeRegex.MatchString(parts[1])
 
 	if hasSignatureInURL {
-		// Has signature - parts[2] is signature, parts[3] is size
-		if len(parts) < 5 {
-			return nil, fmt.Errorf("invalid path format, expected /{storage}/thumbs/{signature}/{size}/[filters:{filters}/]{path}")
+		// Has signature - parts[1] is signature, parts[2] is size
+		if len(parts) < 4 {
+			return nil, fmt.Errorf("invalid path format, expected /thumbs/{signature}/{size}/[filters:{filters}/]{path}")
 		}
-		sizeIndex = 3
-		req.ProvidedSignature = parts[2]
+		sizeIndex = 2
+		req.ProvidedSignature = parts[1]
 
 		// Validate signature format (should be hex string)
 		if !isValidSignature(req.ProvidedSignature) {
 			return nil, fmt.Errorf("invalid signature format")
 		}
 	} else {
-		// No signature - parts[2] is the size
-		sizeIndex = 2
+		// No signature - parts[1] is the size
+		sizeIndex = 1
 		req.ProvidedSignature = ""
 	}
 
@@ -263,15 +259,15 @@ func GetCachePath(basePath string, req *ThumbnailRequest) string {
 // GenerateURL creates a signed URL from request parameters
 // Useful for generating URLs programmatically
 // If secretKey is empty, signature is omitted from the URL
-func GenerateURL(storage string, width, height int, filterString, path, secretKey string) string {
+func GenerateURL(width, height int, filterString, path, secretKey string) string {
 	if secretKey == "" {
 		// No signature - generate URL without signature
 		if filterString != "" {
-			return fmt.Sprintf("/%s/thumbs/%dx%d/filters:%s/%s",
-				storage, width, height, filterString, path)
+			return fmt.Sprintf("/thumbs/%dx%d/filters:%s/%s",
+				width, height, filterString, path)
 		}
-		return fmt.Sprintf("/%s/thumbs/%dx%d/%s",
-			storage, width, height, path)
+		return fmt.Sprintf("/thumbs/%dx%d/%s",
+			width, height, path)
 	}
 
 	// Generate signature
@@ -279,9 +275,9 @@ func GenerateURL(storage string, width, height int, filterString, path, secretKe
 
 	// Build URL with signature
 	if filterString != "" {
-		return fmt.Sprintf("/%s/thumbs/%s/%dx%d/filters:%s/%s",
-			storage, signature, width, height, filterString, path)
+		return fmt.Sprintf("/thumbs/%s/%dx%d/filters:%s/%s",
+			signature, width, height, filterString, path)
 	}
-	return fmt.Sprintf("/%s/thumbs/%s/%dx%d/%s",
-		storage, signature, width, height, path)
+	return fmt.Sprintf("/thumbs/%s/%dx%d/%s",
+		signature, width, height, path)
 }

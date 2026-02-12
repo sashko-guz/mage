@@ -16,14 +16,13 @@ const (
 	DriverLocal StorageDriver = "local"
 )
 
-type StorageItem struct {
-	Name   string        `json:"name"`
+type StorageConfig struct {
 	Driver StorageDriver `json:"driver"`
 
-	// Cache configuration overrides
+	// Cache configuration
 	Cache *StorageCacheConfig `json:"cache,omitempty"`
 
-	// Signature secret key for HMAC signature validation (optional, per-storage)
+	// Signature secret key for HMAC signature validation (optional)
 	SignatureSecretKey string `json:"signature_secret_key,omitempty"`
 
 	// S3 specific fields
@@ -63,10 +62,6 @@ type StorageCacheConfig struct {
 	Disk   *DiskCacheOptions   `json:"disk,omitempty"`
 }
 
-type StorageConfig struct {
-	Storages []StorageItem `json:"storages"`
-}
-
 // DiskCacheConfig contains configuration for disk-based cache
 // The cache stores both source images and thumbnails with a unified size limit
 type DiskCacheConfig struct {
@@ -87,12 +82,11 @@ type MemoryCacheConfig struct {
 
 // CachedStorageConfig contains configuration for cached storage
 type CachedStorageConfig struct {
-	StorageName string
 	DiskCache   *DiskCacheConfig
 	MemoryCache *MemoryCacheConfig
 }
 
-func LoadStorageConfig(configPath string) (*StorageConfig, error) {
+func LoadConfig(configPath string) (*StorageConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)

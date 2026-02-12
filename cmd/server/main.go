@@ -27,7 +27,7 @@ func main() {
 	cfg := config.Load()
 
 	log.Printf("[Server] Starting image processing server…")
-	log.Printf("[Server] Storages config loaded from: %s", cfg.StoragesConfigPath)
+	log.Printf("[Server] Storage config loaded from: %s", cfg.StorageConfigPath)
 
 	// Configure libvips concurrency if provided
 	var vipsCfg *vips.Config
@@ -44,37 +44,23 @@ func main() {
 	vips.Startup(vipsCfg)
 	defer vips.Shutdown()
 
-	// Load storages configuration from JSON
-	storageConfig, err := storage.LoadStorageConfig(cfg.StoragesConfigPath)
+	// Load storage configuration from JSON
+	storageConfig, err := storage.LoadConfig(cfg.StorageConfigPath)
 	if err != nil {
-		log.Fatalf("[Server] Failed to load storages config: %v", err)
+		log.Fatalf("[Server] Failed to load storage config: %v", err)
 	}
 
-	// Initialize all configured storages (with cache layers if configured)
-	storages, err := storage.InitializeStorages(storageConfig)
+	// Initialize storage (with cache layers if configured)
+	stor, signatureKey, err := storage.NewStorage(storageConfig)
 	if err != nil {
-		log.Fatalf("[Server] Failed to initialize storages: %v", err)
-	}
-
-	// Build index of storage configs by name for easy lookup
-	storageCfgByName := make(map[string]storage.StorageItem)
-	for _, item := range storageConfig.Storages {
-		storageCfgByName[item.Name] = item
-	}
-
-	// Collect signature keys per storage
-	signatureKeys := make(map[string]string)
-	for name := range storages {
-		if item, ok := storageCfgByName[name]; ok {
-			signatureKeys[name] = item.SignatureSecretKey
-		}
+		log.Fatalf("[Server] Failed to initialize storage: %v", err)
 	}
 
 	// Initialize image processor
 	imageProcessor := processor.NewImageProcessor()
 
 	// Initialize handler
-	thumbnailHandler, err := handler.NewThumbnailHandler(storages, imageProcessor, signatureKeys)
+	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, signatureKey)
 	if err != nil {
 		log.Fatalf("[Server] Failed to initialize thumbnail handler: %v", err)
 	}
@@ -96,9 +82,12 @@ func main() {
 	// Start server
 	addr := ":" + cfg.Port
 	log.Printf("[Server] Server listening on %s", addr)
-	log.Printf("[Server] Thumbnail endpoint: http://localhost%s/{storage}/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
-	log.Printf("[Server] Example with s3 storage and signature: http://localhost%s/s3/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/my-awesome-image.jpeg", addr)
-	log.Printf("[Server] Example with local storage without signature: http://localhost%s/local/thumbs/400x300/image.png", addr)
+	log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
+	if signatureKey != "" {
+		log.Printf("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(88)/image.jpg", addr)
+	} else {
+		log.Printf("[Server] Example: http://localhost%s/thumbs/400x300/filters:format(webp);quality(88)/image.jpg", addr)
+	}
 
 	if err := http.ListenAndServe(addr, rootHandler); err != nil {
 		log.Fatalf("[Server] Server failed to start: %v", err)
@@ -107,6 +96,5 @@ func main() {
 
 func isThumbnailPath(path string) bool {
 	trimmed := strings.TrimPrefix(path, "/")
-	parts := strings.SplitN(trimmed, "/", 3)
-	return len(parts) >= 2 && parts[1] == "thumbs"
+	return strings.HasPrefix(trimmed, "thumbs/") || trimmed == "thumbs"
 }

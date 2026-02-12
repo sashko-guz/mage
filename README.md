@@ -18,9 +18,9 @@ This is a learning project created to explore:
 
 Mage is an HTTP image processing service that:
 - Generates thumbnails on-the-fly
-- Supports multiple storage backends (local filesystem, AWS S3)
-- Implements caching for improved performance
-- Validates requests with HMAC signatures (configurable per storage)
+- Supports storage backends (local filesystem, AWS S3, S3-compatible services)
+- Implements multi-layer caching for improved performance
+- Validates requests with HMAC signatures (optional)
 - Uses libvips for fast image processing
 
 ## Tech Stack
@@ -51,10 +51,15 @@ cd mage
 go mod download
 ```
 
-3. Configure environment:
+3. Configure storage:
 ```bash
-cp storages.example.json storages.json
-# Edit storages.json with your storage configuration
+# For local storage
+cp storage.local.example.json storage.json
+
+# Or for S3 storage
+cp storage.s3.example.json storage.json
+
+# Edit storage.json with your configuration
 ```
 
 4. Run the server:
@@ -67,30 +72,46 @@ go run ./cmd/server
 Build and run with Docker:
 ```bash
 docker build -t mage .
-docker run -p 8080:8080 -v $(pwd)/storages.json:/app/storages.json mage
+docker run -p 8080:8080 -v $(pwd)/storage.json:/app/storage.json mage
 ```
 
 ## Configuration
 
-Configure the service using environment variables:
+### Environment Variables
 
 - `PORT` - Server port (default: 8080)
-- `STORAGES_CONFIG_PATH` - Path to storages configuration file (default: ./storages.json)
+- `STORAGE_CONFIG_PATH` - Path to storage configuration file (default: ./storage.json)
 - `VIPS_CONCURRENCY` - libvips concurrency level (optional)
 
-Per-storage settings are configured in `storages.json`:
+### Storage Configuration
+
+Configure your storage in `storage.json`. See example files for reference:
+- `storage.local.example.json` - Local filesystem storage
+- `storage.s3.example.json` - AWS S3 or S3-compatible storage
+
+#### Configuration Options
+
+**Storage Settings:**
+- `driver` - Storage backend: `"local"` or `"s3"`
 - `signature_secret_key` - HMAC signature validation secret key (optional)
-- `cache.memory.enabled` - Enable/disable in-memory cache for this storage (default: `false`)
-- `cache.memory.max_size_mb` - Maximum memory cache size in MB (optional)
-  - Default: Not set (memory cache disabled if this field is omitted)
-- `cache.memory.max_items` - Maximum number of cached items (optional)
-  - Default: Automatically calculated as `max_size_mb / 100` (minimum 100 items)
-- `cache.disk.enabled` - Enable/disable disk cache for this storage (default: `false`)
-- `cache.disk.ttl_seconds` - Cache time-to-live in seconds (default: `300` if disk cache enabled)
-- `cache.disk.max_size_mb` - Maximum disk cache size in megabytes (optional)
-  - Default: 0 (unlimited)
-  - Examples: 512 (512MB), 1024 (1GB), 5120 (5GB), 10240 (10GB)
-  - When exceeded, oldest cached files are automatically deleted during cleanup
+
+**Local Storage:**
+- `root` - Root directory path for local storage (required for local driver)
+
+**S3 Storage:**
+- `bucket` - S3 bucket name (required for S3 driver)
+- `region` - AWS region (default: "us-east-1")
+- `access_key` - AWS access key (optional, uses default credentials if omitted)
+- `secret_key` - AWS secret key (optional, uses default credentials if omitted)
+- `base_url` - Custom endpoint for S3-compatible storage like MinIO (optional)
+
+**Cache Settings:**
+- `cache.memory.enabled` - Enable in-memory cache (default: `false`)
+- `cache.memory.max_size_mb` - Maximum memory cache size in MB
+- `cache.memory.max_items` - Maximum number of cached items (default: 1000)
+- `cache.disk.enabled` - Enable disk cache (default: `false`)
+- `cache.disk.ttl_seconds` - Cache time-to-live in seconds (default: 300)
+- `cache.disk.max_size_mb` - Maximum disk cache size in MB (0 = unlimited)
 - `cache.disk.dir` - Cache directory path (required if disk cache enabled)
 - `cache.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
 
@@ -118,71 +139,70 @@ Mage implements a sophisticated multi-layer caching system for maximum performan
 3. **Layer 3: Source Storage** - S3, local filesystem, etc.
    - Only accessed on cache miss
 
-### Cache Configuration Examples
+### Configuration Examples
 
-**With both memory and disk caching enabled:**
+**Local storage with caching enabled (storage.local.example.json):**
 ```json
 {
-  "storages": [
-    {
-      "name": "uploads",
-      "driver": "local",
-      "root": "/var/www/uploads",
-      "cache": {
-        "memory": {
-          "enabled": true,
-          "max_size_mb": 512,
-          "max_items": 1000
-        },
-        "disk": {
-          "enabled": true,
-          "ttl_seconds": 300,
-          "max_size_mb": 5120,
-          "dir": "/var/cache/mage/uploads",
-          "clear_on_startup": false
-        }
-      }
+  "driver": "local",
+  "root": "/var/www/uploads",
+  "signature_secret_key": "your-secret-key-here",
+  "cache": {
+    "memory": {
+      "enabled": true,
+      "max_size_mb": 512,
+      "max_items": 1000
     },
-    {
-      "name": "s3-images",
-      "driver": "s3",
-      "bucket": "my-images",
-      "cache": {
-        "memory": {
-          "enabled": true,
-          "max_size_mb": 1024
-        },
-        "disk": {
-          "enabled": true,
-          "ttl_seconds": 600,
-          "max_size_mb": 10240,
-          "dir": "/var/cache/mage/s3",
-          "clear_on_startup": false
-        }
-      }
+    "disk": {
+      "enabled": true,
+      "ttl_seconds": 300,
+      "max_size_mb": 5120,
+      "dir": "/var/cache/mage",
+      "clear_on_startup": false
     }
-  ]
+  }
 }
 ```
 
-**With caching disabled:**
+**S3 storage with caching enabled (storage.s3.example.json):**
 ```json
 {
-  "storages": [
-    {
-      "name": "uploads",
-      "driver": "local",
-      "root": "/var/www/uploads",
-      "cache": {
-        "memory": {
-          "enabled": false
-        },
-        "disk": {
-          "enabled": false
-        }
-      }
+  "driver": "s3",
+  "bucket": "my-bucket",
+  "region": "us-west-1",
+  "access_key": "YOUR_ACCESS_KEY",
+  "secret_key": "YOUR_SECRET_KEY",
+  "signature_secret_key": "your-secret-key-here",
+  "cache": {
+    "memory": {
+      "enabled": true,
+      "max_size_mb": 1024,
+      "max_items": 1000
+    },
+    "disk": {
+      "enabled": true,
+      "ttl_seconds": 100,
+      "max_size_mb": 10240,
+      "dir": "/var/cache/mage",
+      "clear_on_startup": false
     }
-  ]
+  }
+}
+```
+
+**Without caching:**
+```json
+{
+  "driver": "local",
+  "root": "/var/www/uploads",
+  "cache": {
+    "memory": {
+      "enabled": false
+    },
+    "disk": {
+      "enabled": false
+    }
+  }
 }
 ```
 
@@ -235,11 +255,10 @@ For high-performance S3 access, configure HTTP client settings per storage to op
 
 ### Configuration
 
-Add `s3_http_config` to your S3 storage configuration:
+Add `s3_http_config` to your S3 storage configuration in `storage.json`:
 
 ```json
 {
-  "name": "s3-images",
   "driver": "s3",
   "bucket": "my-bucket",
   "region": "us-west-1",

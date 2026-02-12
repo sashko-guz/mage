@@ -5,14 +5,14 @@ import (
 )
 
 type Config struct {
-	StoragesConfigPath string
-	Port               string
+	StorageConfigPath string
+	Port              string
 }
 
 func Load() *Config {
 	return &Config{
-		StoragesConfigPath: getEnv("STORAGE_CONFIG_PATH", "./storages.json"),
-		Port:               getEnv("PORT", "8080"),
+		StorageConfigPath: getEnv("STORAGE_CONFIG_PATH", "./storage.json"),
+		Port:              getEnv("PORT", "8080"),
 	}
 }
 

@@ -21,25 +21,25 @@ type ThumbnailResult struct {
 }
 
 type ThumbnailHandler struct {
-	storages      map[string]storage.Storage
-	processor     *processor.ImageProcessor
-	singleflight  *singleflight.Group
-	processSem    chan struct{}
-	signatureKeys map[string]string // Per-storage signature keys
+	storage      storage.Storage
+	processor    *processor.ImageProcessor
+	singleflight *singleflight.Group
+	processSem   chan struct{}
+	signatureKey string // Signature key for HMAC validation
 }
 
-func NewThumbnailHandler(storages map[string]storage.Storage, processor *processor.ImageProcessor, signatureKeys map[string]string) (*ThumbnailHandler, error) {
+func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcessor, signatureKey string) (*ThumbnailHandler, error) {
 	return &ThumbnailHandler{
-		storages:      storages,
-		processor:     processor,
-		singleflight:  &singleflight.Group{},
-		processSem:    make(chan struct{}, 16), // limit concurrent vips work to avoid crash
-		signatureKeys: signatureKeys,
+		storage:      stor,
+		processor:    processor,
+		singleflight: &singleflight.Group{},
+		processSem:   make(chan struct{}, 16), // limit concurrent vips work to avoid crash
+		signatureKey: signatureKey,
 	}, nil
 }
 
 func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Parse URL path: /{storage}/thumbs/[{signature}/]{size}/{filters}/{path}
+	// Parse URL path: /thumbs/[{signature}/]{size}/[filters:{filters}/]{path}
 	req, err := parser.ParseURL(r.URL.Path, "")
 	if err != nil {
 		log.Printf("[ThumbnailHandler] Error parsing URL: %v (url=%s)", err, r.URL.String())
@@ -47,26 +47,17 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[ThumbnailHandler] Processing thumbnail: storage=%s, path=%s, size=%dx%d, format=%s, quality=%d, fit=%s",
-		req.Storage, req.Path, req.Width, req.Height, req.Format, req.Quality, req.Fit)
+	log.Printf("[ThumbnailHandler] Processing thumbnail: path=%s, size=%dx%d, format=%s, quality=%d, fit=%s",
+		req.Path, req.Width, req.Height, req.Format, req.Quality, req.Fit)
 
-	// Get the appropriate storage
-	store, ok := h.storages[req.Storage]
-	if !ok {
-		log.Printf("[ThumbnailHandler] Unknown storage type: %s (url=%s)", req.Storage, r.URL.String())
-		http.Error(w, fmt.Sprintf("Unknown storage type: %s (url=%s)", req.Storage, r.URL.String()), http.StatusBadRequest)
-		return
-	}
-
-	// Get the signature key for this storage
-	signatureKey := h.signatureKeys[req.Storage]
-
-	// Verify signature if secret key is configured for this storage
-	if !parser.VerifySignature(req, signatureKey) {
+	// Verify signature if secret key is configured
+	if !parser.VerifySignature(req, h.signatureKey) {
 		log.Printf("[ThumbnailHandler] Invalid signature for request: %s", r.URL.String())
 		http.Error(w, "Invalid signature", http.StatusForbidden)
 		return
 	}
+
+	store := h.storage
 
 	// Use URL path as cache key for thumbnails
 	cacheKey := r.URL.Path
@@ -118,7 +109,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Fetch image from storage (with source caching)
 		imageData, err := store.GetObject(r.Context(), req.Path)
 		if err != nil {
-			log.Printf("[ThumbnailHandler] Error fetching image from %s storage: %v", req.Storage, err)
+			log.Printf("[ThumbnailHandler] Error fetching image from storage: %v", err)
 			return nil, err
 		}
 
@@ -188,5 +179,5 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Printf("[ThumbnailHandler] Successfully generated thumbnail for: %s (%s)", req.Storage, req.Path)
+	log.Printf("[ThumbnailHandler] Successfully generated thumbnail for: %s", req.Path)
 }

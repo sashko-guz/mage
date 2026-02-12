@@ -15,7 +15,7 @@ go.work
 .claude/
 
 # Project related files
-storages.json
+storage.json
 .cache
 
 # MacOS specific files
