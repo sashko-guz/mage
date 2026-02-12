@@ -174,7 +174,6 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 		}
 
 		memCache, err := cache.NewMemoryCache(cache.MemoryCacheConfig{
-			Name:     "",
 			MaxSize:  memorySizeBytes,
 			MaxItems: maxItems,
 			TTL:      cfg.DiskCache.TTL,
@@ -198,7 +197,6 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 		cfg.DiskCache.BasePath,
 		cfg.DiskCache.TTL,
 		cfg.DiskCache.ClearOnStartup,
-		"",
 		diskCacheMaxBytes,
 	)
 	if err != nil {

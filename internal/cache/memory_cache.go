@@ -11,12 +11,10 @@ import (
 // MemoryCache provides high-performance in-memory caching with LRU eviction
 type MemoryCache struct {
 	cache *ristretto.Cache
-	name  string
 }
 
 // MemoryCacheConfig defines configuration for the memory cache
 type MemoryCacheConfig struct {
-	Name        string        // Cache name for logging
 	MaxSize     int64         // Max memory in bytes
 	MaxItems    int64         // Max number of items (optional)
 	BufferItems int64         // Internal buffer size (10x MaxItems recommended)
@@ -51,21 +49,18 @@ func NewMemoryCache(cfg MemoryCacheConfig) (*MemoryCache, error) {
 		BufferItems: 64,              // Number of keys per Get buffer
 		Metrics:     true,            // Enable metrics collection
 		OnEvict: func(item *ristretto.Item) {
-			if cfg.Name != "" {
-				log.Printf("[MemoryCache:%s] Evicted item (cost: %d bytes)", cfg.Name, item.Cost)
-			}
+			log.Printf("[MemoryCache] Evicted item (cost: %d bytes)", item.Cost)
 		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ristretto cache: %w", err)
 	}
 
-	log.Printf("[MemoryCache:%s] Initialized: MaxSize=%dMB, MaxItems=%d",
-		cfg.Name, cfg.MaxSize/(1024*1024), cfg.MaxItems)
+	log.Printf("[MemoryCache] Initialized: MaxSize=%dMB, MaxItems=%d",
+		cfg.MaxSize/(1024*1024), cfg.MaxItems)
 
 	return &MemoryCache{
 		cache: cache,
-		name:  cfg.Name,
 	}, nil
 }
 
@@ -79,11 +74,11 @@ func (mc *MemoryCache) Get(key string) ([]byte, bool) {
 
 	data, ok := value.([]byte)
 	if !ok {
-		log.Printf("[MemoryCache:%s] Invalid data type for key: %s", mc.name, key)
+		log.Printf("[MemoryCache] Invalid data type for key: %s", key)
 		return nil, false
 	}
 
-	log.Printf("[MemoryCache:%s] Cache HIT for key: %s", mc.name, key)
+	log.Printf("[MemoryCache] Cache HIT for key: %s", key)
 	return data, true
 }
 
@@ -97,7 +92,7 @@ func (mc *MemoryCache) Set(key string, data []byte, ttl time.Duration) bool {
 	success := mc.cache.SetWithTTL(key, data, cost, ttl)
 
 	if !success {
-		log.Printf("[MemoryCache:%s] Warning: Failed to set key (buffer full or rejected)", mc.name)
+		log.Printf("[MemoryCache] Warning: Failed to set key (buffer full or rejected)")
 	}
 
 	return success
@@ -111,7 +106,7 @@ func (mc *MemoryCache) Delete(key string) {
 // Clear removes all entries from the cache
 func (mc *MemoryCache) Clear() {
 	mc.cache.Clear()
-	log.Printf("[MemoryCache:%s] Cache cleared", mc.name)
+	log.Printf("[MemoryCache] Cache cleared")
 }
 
 // Wait blocks until all pending writes are processed
@@ -139,7 +134,6 @@ func (mc *MemoryCache) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"name":         mc.name,
 		"hits":         hits,
 		"misses":       misses,
 		"total":        total,
@@ -155,5 +149,5 @@ func (mc *MemoryCache) GetStats() map[string]interface{} {
 // Close closes the cache and releases resources
 func (mc *MemoryCache) Close() {
 	mc.cache.Close()
-	log.Printf("[MemoryCache:%s] Cache closed", mc.name)
+	log.Printf("[MemoryCache] Cache closed")
 }

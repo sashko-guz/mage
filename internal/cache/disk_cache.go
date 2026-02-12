@@ -35,7 +35,6 @@ type DiskCache struct {
 	basePath string
 	MaxSize  int64         // Maximum cache size in bytes (0 = unlimited)
 	TTL      time.Duration // Exported so CachedStorage can access it
-	name     string        // Storage name for logging
 	mu       sync.RWMutex
 }
 
@@ -59,9 +58,8 @@ type cacheFile struct {
 // basePath is the directory where cache files will be stored
 // ttl is the time-to-live for cache entries
 // clearOnStartup: if true, removes ALL cache files on startup (useful for testing or ensuring fresh start)
-// name is the storage name for logging purposes
 // maxSizeBytes is the maximum cache size in bytes (0 = unlimited). Cleanup will evict oldest files if exceeded.
-func NewDiskCache(basePath string, ttl time.Duration, clearOnStartup bool, name string, maxSizeBytes int64) (*DiskCache, error) {
+func NewDiskCache(basePath string, ttl time.Duration, clearOnStartup bool, maxSizeBytes int64) (*DiskCache, error) {
 	absPath, err := filepath.Abs(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve cache path: %w", err)
@@ -75,25 +73,24 @@ func NewDiskCache(basePath string, ttl time.Duration, clearOnStartup bool, name 
 		basePath: absPath,
 		MaxSize:  maxSizeBytes,
 		TTL:      ttl,
-		name:     name,
 	}
 
 	if clearOnStartup {
 		// Clear ALL cache files on startup
-		log.Printf("[DiskCache:%s] Clearing all cache files in %s (clearOnStartup=true)", name, absPath)
+		log.Printf("[DiskCache] Clearing all cache files in %s (clearOnStartup=true)", absPath)
 		if err := dc.Clear(); err != nil {
-			log.Printf("[DiskCache:%s] Error during startup cache clear: %v", name, err)
+			log.Printf("[DiskCache] Error during startup cache clear: %v", err)
 		}
 	} else {
 		// Run cleanup synchronously at startup to clear only expired entries before serving requests
-		log.Printf("[DiskCache:%s] Running initial cleanup for %s", name, absPath)
+		log.Printf("[DiskCache] Running initial cleanup for %s", absPath)
 		dc.performCleanup()
 	}
 
 	// Start background cleanup goroutine
 	go dc.cleanupExpired()
 
-	log.Printf("[DiskCache:%s] Initialized with base path: %s, TTL: %v, MaxSize: %v, cleanup interval: 30s (adaptive backoff)", name, absPath, ttl, formatBytes(maxSizeBytes))
+	log.Printf("[DiskCache] Initialized with base path: %s, TTL: %v, MaxSize: %v, cleanup interval: 30s (adaptive backoff)", absPath, ttl, formatBytes(maxSizeBytes))
 	return dc, nil
 }
 
@@ -114,13 +111,13 @@ func (dc *DiskCache) Get(key string) ([]byte, error) {
 	// Check if entry has expired
 	now := time.Now()
 	if now.After(expiresAt) {
-		log.Printf("[DiskCache:%s] Cache entry expired for key: %s (expired at %v)", dc.name, key, expiresAt.Format(time.RFC3339))
+		log.Printf("[DiskCache] Cache entry expired for key: %s (expired at %v)", key, expiresAt.Format(time.RFC3339))
 		// Delete immediately
 		go func() {
 			if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-				log.Printf("[DiskCache:%s] Error deleting expired cache file %s: %v", dc.name, filePath, err)
+				log.Printf("[DiskCache] Error deleting expired cache file %s: %v", filePath, err)
 			} else {
-				log.Printf("[DiskCache:%s] Deleted expired cache file: %s", dc.name, filePath)
+				log.Printf("[DiskCache] Deleted expired cache file: %s", filePath)
 			}
 		}()
 		return nil, ErrCacheNotFound
@@ -129,11 +126,11 @@ func (dc *DiskCache) Get(key string) ([]byte, error) {
 	// Read raw data directly (no JSON parsing!)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		log.Printf("[DiskCache:%s] Error reading cache file %s: %v", dc.name, filePath, err)
+		log.Printf("[DiskCache] Error reading cache file %s: %v", filePath, err)
 		return nil, fmt.Errorf("failed to read cache file: %w", err)
 	}
 
-	log.Printf("[DiskCache:%s] Cache HIT for key: %s (expires at %v)", dc.name, key, expiresAt.Format(time.RFC3339))
+	log.Printf("[DiskCache] Cache HIT for key: %s (expires at %v)", key, expiresAt.Format(time.RFC3339))
 	return data, nil
 }
 
@@ -164,7 +161,7 @@ func (dc *DiskCache) Set(key string, data []byte) error {
 		return fmt.Errorf("failed to rename cache file: %w", err)
 	}
 
-	log.Printf("[DiskCache:%s] Cached data for key: %s (expires at %v, TTL: %v)", dc.name, key, expiresAt.Format(time.RFC3339), dc.TTL)
+	log.Printf("[DiskCache] Cached data for key: %s (expires at %v, TTL: %v)", key, expiresAt.Format(time.RFC3339), dc.TTL)
 	return nil
 }
 
@@ -203,7 +200,7 @@ func (dc *DiskCache) Clear() error {
 		return fmt.Errorf("failed to recreate cache directory: %w", err)
 	}
 
-	log.Printf("[DiskCache:%s] Cache cleared", dc.name)
+	log.Printf("[DiskCache] Cache cleared")
 	return nil
 }
 
@@ -217,7 +214,7 @@ func (dc *DiskCache) cleanupExpired() {
 	timer := time.NewTimer(interval)
 	defer timer.Stop()
 
-	log.Printf("[DiskCache:%s] Cleanup goroutine started, next cleanup in %v", dc.name, interval)
+	log.Printf("[DiskCache] Cleanup goroutine started, next cleanup in %v", interval)
 
 	for {
 		<-timer.C
@@ -248,7 +245,7 @@ func (dc *DiskCache) cleanupExpired() {
 			}
 		}
 		timer.Reset(interval)
-		log.Printf("[DiskCache:%s] Next cleanup in %v (deleted: %d/%d, rate: %.2f%%, kept: %d)", dc.name, interval, stats.deletedCount, stats.totalFiles, deletionRate*100, stats.keptCount)
+		log.Printf("[DiskCache] Next cleanup in %v (deleted: %d/%d, rate: %.2f%%, kept: %d)", interval, stats.deletedCount, stats.totalFiles, deletionRate*100, stats.keptCount)
 	}
 }
 
@@ -257,7 +254,7 @@ func (dc *DiskCache) performCleanup() cleanupStats {
 	stats := cleanupStats{}
 	var validFiles []cacheFile // Track valid files for size-based eviction
 
-	log.Printf("[DiskCache:%s] Starting cleanup scan in %s", dc.name, dc.basePath)
+	log.Printf("[DiskCache] Starting cleanup scan in %s", dc.basePath)
 
 	// First pass: delete expired files and collect valid files with their sizes
 	err := filepath.Walk(dc.basePath, func(path string, info os.FileInfo, err error) error {
@@ -288,7 +285,7 @@ func (dc *DiskCache) performCleanup() cleanupStats {
 				stats.deletedSize += fileSize
 			} else {
 				stats.errorCount++
-				log.Printf("[DiskCache:%s] Error deleting corrupted entry %s: %v", dc.name, path, err)
+				log.Printf("[DiskCache] Error deleting corrupted entry %s: %v", path, err)
 			}
 			return nil
 		}
@@ -298,7 +295,7 @@ func (dc *DiskCache) performCleanup() cleanupStats {
 			// Lock only for the delete operation
 			dc.mu.Lock()
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				log.Printf("[DiskCache:%s] Error deleting expired cache file %s: %v", dc.name, path, err)
+				log.Printf("[DiskCache] Error deleting expired cache file %s: %v", path, err)
 				stats.errorCount++
 			} else {
 				stats.deletedCount++
@@ -323,13 +320,13 @@ func (dc *DiskCache) performCleanup() cleanupStats {
 	})
 
 	if err != nil {
-		log.Printf("[DiskCache:%s] Error during cleanup walk: %v", dc.name, err)
+		log.Printf("[DiskCache] Error during cleanup walk: %v", err)
 	}
 
 	// Second pass: if MaxSize is set and exceeded, delete oldest files
 	if dc.MaxSize > 0 && stats.keptSize > dc.MaxSize {
-		log.Printf("[DiskCache:%s] Cache size exceeded: %v > %v, evicting oldest files",
-			dc.name, formatBytes(stats.keptSize), formatBytes(dc.MaxSize))
+		log.Printf("[DiskCache] Cache size exceeded: %v > %v, evicting oldest files",
+			formatBytes(stats.keptSize), formatBytes(dc.MaxSize))
 
 		// Sort by expiration time (oldest first)
 		sort.Slice(validFiles, func(i, j int) bool {
@@ -344,7 +341,7 @@ func (dc *DiskCache) performCleanup() cleanupStats {
 
 			dc.mu.Lock()
 			if err := os.Remove(file.path); err != nil && !os.IsNotExist(err) {
-				log.Printf("[DiskCache:%s] Error deleting file during size-based eviction %s: %v", dc.name, file.path, err)
+				log.Printf("[DiskCache] Error deleting file during size-based eviction %s: %v", file.path, err)
 				stats.errorCount++
 				dc.mu.Unlock()
 				continue
@@ -360,12 +357,12 @@ func (dc *DiskCache) performCleanup() cleanupStats {
 			dc.cleanupEmptyDirs(filepath.Dir(file.path))
 		}
 
-		log.Printf("[DiskCache:%s] Size-based eviction complete: freed %v (now %v)",
-			dc.name, formatBytes(stats.deletedSize), formatBytes(stats.keptSize))
+		log.Printf("[DiskCache] Size-based eviction complete: freed %v (now %v)",
+			formatBytes(stats.deletedSize), formatBytes(stats.keptSize))
 	}
 
-	log.Printf("[DiskCache:%s] Cleanup complete: scanned %d files (%v), kept %d (%v), deleted %d (%v), errors %d",
-		dc.name, stats.totalFiles, formatBytes(stats.totalSize), stats.keptCount, formatBytes(stats.keptSize), stats.deletedCount, formatBytes(stats.deletedSize), stats.errorCount)
+	log.Printf("[DiskCache] Cleanup complete: scanned %d files (%v), kept %d (%v), deleted %d (%v), errors %d",
+		stats.totalFiles, formatBytes(stats.totalSize), stats.keptCount, formatBytes(stats.keptSize), stats.deletedCount, formatBytes(stats.deletedSize), stats.errorCount)
 	return stats
 }
 
