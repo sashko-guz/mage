@@ -13,12 +13,12 @@ func NewImageProcessor() *ImageProcessor {
 }
 
 type ThumbnailOptions struct {
-	Width    int
-	Height   int
-	Format   string
-	Quality  int
-	Fit      string // "fill" or "cover"
-	FitColor string // "black", "white", or "transparent" (for fill mode only)
+	Width     int
+	Height    int
+	Format    string
+	Quality   int
+	Fit       string // "fill" or "cover"
+	FillColor string // "black", "white", or "transparent" (for fill mode only)
 }
 
 func (p *ImageProcessor) CreateThumbnail(imageData []byte, opts *ThumbnailOptions) ([]byte, string, error) {
@@ -41,7 +41,7 @@ func (p *ImageProcessor) CreateThumbnail(imageData []byte, opts *ThumbnailOption
 		imgWidth := img.Width()
 		imgHeight := img.Height()
 		if imgWidth < opts.Width || imgHeight < opts.Height {
-			fillColor := opts.FitColor
+			fillColor := opts.FillColor
 
 			// Validate: transparent fill is only supported for PNG
 			if fillColor == "transparent" && opts.Format != "png" {

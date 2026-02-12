@@ -17,7 +17,7 @@ type ThumbnailRequest struct {
 	Format            string
 	Quality           int
 	Fit               string
-	FitColor          string // Color for fill mode: "black", "white", "transparent"
+	FillColor         string // Color for fill mode: "black", "white", "transparent"
 	Path              string
 	ProvidedSignature string // Signature from URL
 	FilterString      string // Raw filter string for signature validation
@@ -58,10 +58,10 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 	}
 
 	req := &ThumbnailRequest{
-		Quality:  75,      // Default quality
-		Format:   "jpeg",  // Default format
-		Fit:      "cover", // Default fit mode - scales and crops to exact dimensions
-		FitColor: "",      // Will be set based on format after parsing
+		Quality:   75,      // Default quality
+		Format:    "jpeg",  // Default format
+		Fit:       "cover", // Default fit mode - scales and crops to exact dimensions
+		FillColor: "",      // Will be set based on format after parsing
 	}
 
 	// Determine if we have a signature by checking if parts[1] matches size format
@@ -131,16 +131,16 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 
 	req.Path = filePath
 
-	// Set default FitColor based on format if not explicitly specified
-	if req.FitColor == "" && req.Fit == "fill" {
+	// Set default FillColor based on format if not explicitly specified
+	if req.FillColor == "" && req.Fit == "fill" {
 		if req.Format == "png" {
-			req.FitColor = "transparent"
+			req.FillColor = "transparent"
 		} else {
-			req.FitColor = "white"
+			req.FillColor = "white"
 		}
-	} else if req.FitColor == "" {
+	} else if req.FillColor == "" {
 		// For non-fill modes, set a default (shouldn't be used but good for consistency)
-		req.FitColor = "white"
+		req.FillColor = "white"
 	}
 
 	return req, nil
@@ -178,7 +178,7 @@ func parseFilters(filterString string, req *ThumbnailRequest) {
 				if fitMode == "fill" && len(fitParams) > 1 {
 					color := strings.TrimSpace(strings.ToLower(fitParams[1]))
 					if color == "black" || color == "white" || color == "transparent" {
-						req.FitColor = color
+						req.FillColor = color
 					}
 				}
 			}
@@ -196,7 +196,7 @@ func detectFormatFromPath(filePath string, req *ThumbnailRequest) {
 		switch ext {
 		case "jpg":
 			req.Format = "jpeg"
-		case "jpeg", "png", "webp", "gif":
+		case "jpeg", "png", "webp":
 			req.Format = ext
 		}
 	}

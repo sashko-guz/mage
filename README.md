@@ -115,6 +115,87 @@ Configure your storage in `storage.json`. See example files for reference:
 - `cache.disk.dir` - Cache directory path (required if disk cache enabled)
 - `cache.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
 
+## URL Filters and API
+
+### URL Format
+
+Mage provides a flexible URL-based API for generating thumbnails with filters:
+
+```
+/thumbs/[{signature}/]{width}x{height}/[filters:{filters}/]{path}
+```
+
+**Components:**
+- `{signature}` - (Optional) HMAC-SHA256 signature for request validation
+- `{width}x{height}` - Required thumbnail dimensions (e.g., `200x350`)
+- `{filters}` - (Optional) Filter string with multiple filters separated by semicolons
+- `{path}` - Required file path in storage (e.g., `path/to/image.jpg`)
+
+### Available Filters
+
+Filters are optional and specified in the URL after `filters:`. Multiple filters are separated by semicolons.
+
+#### format(format)
+
+Specifies output image format.
+
+- **Supported formats:** `jpeg`, `png`, `webp`
+- **Default:** Detected from file extension (defaults to `jpeg` if not specified)
+- **Example:** `format(webp)`
+
+#### quality(level)
+
+JPEG/WebP compression quality level.
+
+- **Range:** 1-100
+- **Default:** 75
+- **Example:** `quality(88)`
+
+#### fit(mode[,color])
+
+Specifies how the image fits within the requested dimensions.
+
+- **Modes:**
+  - `cover` (default) - Scales and crops to fill dimensions, maintains aspect ratio
+  - `fill` - Scales to fit within dimensions, maintains aspect ratio, fills remaining space with color
+
+- **Fill Color** (for `fill` mode only):
+  - `black` - Fill with black background
+  - `white` (default for JPEG/WebP) - Fill with white background
+  - `transparent` (PNG only) - Fill with transparent background
+
+- **Default:** `cover`
+- **Examples:**
+  - `fit(fill)` - Fill mode with default color (transparent for PNG, white otherwise)
+  - `fit(fill,black)` - Fill mode with black background
+  - `fit(cover)` - Cover mode (crop to fill dimensions)
+
+### Example URLs
+
+**Without filters:**
+```
+/thumbs/200x350/path/to/image.jpg
+```
+
+**With filters (multiple filters separated by semicolons):**
+```
+/thumbs/200x350/filters:format(webp);quality(90);fit(fill,black)/path/to/image.jpg
+```
+
+**With signature (required when `signature_secret_key` is configured):**
+```
+/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/path/to/image.jpg
+```
+
+### Signature Generation
+
+When `signature_secret_key` is configured in storage settings, all requests must include a valid HMAC-SHA256 signature. The signature is calculated over all parameters after it in the URL.
+
+**Signature components (in order):**
+1. Size (e.g., `200x350`)
+2. Filter string if present (e.g., `format(webp);quality(88)`)
+3. File path (e.g., `path/to/image.jpg`)
+
 ## Multi-Layer Caching
 
 Mage implements a sophisticated multi-layer caching system for maximum performance:
