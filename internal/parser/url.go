@@ -17,6 +17,7 @@ type ThumbnailRequest struct {
 	Format            string
 	Quality           int
 	Fit               string
+	FitColor          string // Color for fill mode: "black", "white", "transparent"
 	Path              string
 	ProvidedSignature string // Signature from URL
 	FilterString      string // Raw filter string for signature validation
@@ -26,7 +27,7 @@ var (
 	sizeRegex    = regexp.MustCompile(`^(\d+)x(\d+)$`)
 	formatRegex  = regexp.MustCompile(`format\((\w+)\)`)
 	qualityRegex = regexp.MustCompile(`quality\((\d+)\)`)
-	fitRegex     = regexp.MustCompile(`fit\((\w+)\)`)
+	fitRegex     = regexp.MustCompile(`fit\(([^)]+)\)`)
 )
 
 // ParseURL parses a URL path in the format:
@@ -57,9 +58,10 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 	}
 
 	req := &ThumbnailRequest{
-		Quality: 75,      // Default quality
-		Format:  "jpeg",  // Default format
-		Fit:     "cover", // Default fit mode - scales and crops to exact dimensions
+		Quality:  75,      // Default quality
+		Format:   "jpeg",  // Default format
+		Fit:      "cover", // Default fit mode - scales and crops to exact dimensions
+		FitColor: "",      // Will be set based on format after parsing
 	}
 
 	// Determine if we have a signature by checking if parts[1] matches size format
@@ -129,6 +131,18 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 
 	req.Path = filePath
 
+	// Set default FitColor based on format if not explicitly specified
+	if req.FitColor == "" && req.Fit == "fill" {
+		if req.Format == "png" {
+			req.FitColor = "transparent"
+		} else {
+			req.FitColor = "white"
+		}
+	} else if req.FitColor == "" {
+		// For non-fill modes, set a default (shouldn't be used but good for consistency)
+		req.FitColor = "white"
+	}
+
 	return req, nil
 }
 
@@ -152,11 +166,21 @@ func parseFilters(filterString string, req *ThumbnailRequest) {
 			}
 		}
 
-		// Extract fit mode
+		// Extract fit mode with optional color parameter
 		if fitMatch := fitRegex.FindStringSubmatch(filter); fitMatch != nil {
-			fitMode := strings.ToLower(fitMatch[1])
+			fitParams := strings.Split(fitMatch[1], ",")
+			fitMode := strings.TrimSpace(strings.ToLower(fitParams[0]))
+
 			if fitMode == "fill" || fitMode == "cover" {
 				req.Fit = fitMode
+
+				// Parse color if provided (only for fill mode)
+				if fitMode == "fill" && len(fitParams) > 1 {
+					color := strings.TrimSpace(strings.ToLower(fitParams[1]))
+					if color == "black" || color == "white" || color == "transparent" {
+						req.FitColor = color
+					}
+				}
 			}
 		}
 	}

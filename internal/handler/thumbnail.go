@@ -47,8 +47,8 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[ThumbnailHandler] Processing thumbnail: path=%s, size=%dx%d, format=%s, quality=%d, fit=%s",
-		req.Path, req.Width, req.Height, req.Format, req.Quality, req.Fit)
+	log.Printf("[ThumbnailHandler] Processing thumbnail: path=%s, size=%dx%d, format=%s, quality=%d, fit=%s, fitColor=%s",
+		req.Path, req.Width, req.Height, req.Format, req.Quality, req.Fit, req.FitColor)
 
 	// Verify signature if secret key is configured
 	if !parser.VerifySignature(req, h.signatureKey) {
@@ -115,11 +115,12 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Generate thumbnail
 		thumbnail, contentType, err := h.processor.CreateThumbnail(imageData, &processor.ThumbnailOptions{
-			Width:   req.Width,
-			Height:  req.Height,
-			Format:  req.Format,
-			Quality: req.Quality,
-			Fit:     req.Fit,
+			Width:    req.Width,
+			Height:   req.Height,
+			Format:   req.Format,
+			Quality:  req.Quality,
+			Fit:      req.Fit,
+			FitColor: req.FitColor,
 		})
 		if err != nil {
 			log.Printf("[ThumbnailHandler] Error creating thumbnail: %v", err)

@@ -13,11 +13,12 @@ func NewImageProcessor() *ImageProcessor {
 }
 
 type ThumbnailOptions struct {
-	Width   int
-	Height  int
-	Format  string
-	Quality int
-	Fit     string // "fill", or "cover"
+	Width    int
+	Height   int
+	Format   string
+	Quality  int
+	Fit      string // "fill" or "cover"
+	FitColor string // "black", "white", or "transparent" (for fill mode only)
 }
 
 func (p *ImageProcessor) CreateThumbnail(imageData []byte, opts *ThumbnailOptions) ([]byte, string, error) {
@@ -35,14 +36,46 @@ func (p *ImageProcessor) CreateThumbnail(imageData []byte, opts *ThumbnailOption
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to create thumbnail: %w", err)
 		}
-		
+
 		// If image is smaller than requested dimensions, extend it to fill
 		imgWidth := img.Width()
 		imgHeight := img.Height()
 		if imgWidth < opts.Width || imgHeight < opts.Height {
+			fillColor := opts.FitColor
+
+			// Validate: transparent fill is only supported for PNG
+			if fillColor == "transparent" && opts.Format != "png" {
+				img.Close()
+				return nil, "", fmt.Errorf("transparent fill is only supported for PNG format, got: %s", opts.Format)
+			}
+
+			// For transparent fill, ensure alpha channel exists
+			if fillColor == "transparent" && !img.HasAlpha() {
+				err = img.Addalpha()
+				if err != nil {
+					img.Close()
+					return nil, "", fmt.Errorf("failed to add alpha channel: %w", err)
+				}
+			}
+
+			var extendMode vips.Extend
+
+			// Map color to extend mode
+			switch fillColor {
+			case "black":
+				extendMode = vips.ExtendBlack
+			case "white":
+				extendMode = vips.ExtendWhite
+			case "transparent":
+				// For transparent, use background which respects alpha
+				extendMode = vips.ExtendBackground
+			default:
+				extendMode = vips.ExtendWhite
+			}
+
 			// Use Gravity to center and extend to exact dimensions
 			err = img.Gravity(vips.CompassDirectionCentre, opts.Width, opts.Height, &vips.GravityOptions{
-				Extend: vips.ExtendBlack,
+				Extend: extendMode,
 			})
 			if err != nil {
 				img.Close()
@@ -50,7 +83,7 @@ func (p *ImageProcessor) CreateThumbnail(imageData []byte, opts *ThumbnailOption
 			}
 		}
 	default:
-		// Default to cover mode 
+		// Default to cover mode
 		img, err = vips.NewThumbnailBuffer(imageData, opts.Width, &vips.ThumbnailBufferOptions{
 			Height: opts.Height,
 			Crop:   vips.InterestingCentre,
