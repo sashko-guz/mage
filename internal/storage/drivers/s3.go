@@ -1,4 +1,4 @@
-package storage
+package drivers
 
 import (
 	"context"
@@ -15,6 +15,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"golang.org/x/net/http2"
 )
+
+// S3HTTPConfig contains HTTP client configuration for S3 connections
+type S3HTTPConfig struct {
+	MaxIdleConns          int `json:"max_idle_conns,omitempty"`              // Max idle connections across all hosts (default: 100)
+	MaxIdleConnsPerHost   int `json:"max_idle_conns_per_host,omitempty"`     // Max idle connections per host (default: 100)
+	MaxConnsPerHost       int `json:"max_conns_per_host,omitempty"`          // Max total connections per host (default: 0 = unlimited)
+	IdleConnTimeout       int `json:"idle_conn_timeout_sec,omitempty"`       // Idle connection timeout in seconds (default: 90)
+	ConnectTimeout        int `json:"connect_timeout_sec,omitempty"`         // Connection timeout in seconds (default: 10)
+	RequestTimeout        int `json:"request_timeout_sec,omitempty"`         // Full request timeout in seconds (default: 30)
+	ResponseHeaderTimeout int `json:"response_header_timeout_sec,omitempty"` // Response header timeout in seconds (default: 10)
+}
 
 type S3Client struct {
 	client *s3.Client

@@ -2,9 +2,7 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"time"
 
 	"github.com/sashko-guz/mage/internal/cache"
 )
@@ -21,99 +19,13 @@ type CachedStorage struct {
 	storageName string
 }
 
-// DiskCacheConfig contains configuration for disk-based cache
-// The cache stores both source images and thumbnails with a unified size limit
-type DiskCacheConfig struct {
-	Enabled        bool
-	BasePath       string
-	TTL            time.Duration
-	ClearOnStartup bool
-	MaxSizeMB      int // Maximum total cache size for sources + thumbnails in MB (0 = unlimited)
-}
-
-// MemoryCacheConfig contains configuration for in-memory cache
-// The cache stores both source images and thumbnails with a unified size limit
-type MemoryCacheConfig struct {
-	Enabled   bool
-	MaxSizeMB int // Maximum total memory for sources + thumbnails in megabytes
-	MaxItems  int // Maximum number of cached items (sources + thumbnails combined)
-}
-
-// CachedStorageConfig contains configuration for cached storage
-type CachedStorageConfig struct {
-	StorageName string
-	DiskCache   *DiskCacheConfig
-	MemoryCache *MemoryCacheConfig
-}
-
-// NewCachedStorage creates a wrapped storage with multi-layer caching
-func NewCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStorage, error) {
-	// Validate configuration
-	if cfg.DiskCache == nil || !cfg.DiskCache.Enabled {
-		return nil, fmt.Errorf("disk cache configuration is required and must be enabled")
-	}
-
-	if cfg.DiskCache.BasePath == "" {
-		return nil, fmt.Errorf("disk cache base path is required")
-	}
-
-	// Convert MB to bytes (0 = unlimited)
-	diskCacheMaxBytes := int64(0)
-	if cfg.DiskCache.MaxSizeMB > 0 {
-		diskCacheMaxBytes = int64(cfg.DiskCache.MaxSizeMB) * 1024 * 1024
-	}
-
-	diskCache, err := cache.NewDiskCache(
-		cfg.DiskCache.BasePath,
-		cfg.DiskCache.TTL,
-		cfg.DiskCache.ClearOnStartup,
-		cfg.StorageName,
-		diskCacheMaxBytes,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create disk cache: %w", err)
-	}
-
-	cs := &CachedStorage{
-		underlying:  underlying,
-		diskCache:   diskCache,
-		storageName: cfg.StorageName,
-	}
-
-	// Initialize memory cache if enabled and configured
-	if cfg.MemoryCache != nil && cfg.MemoryCache.Enabled && cfg.MemoryCache.MaxSizeMB > 0 {
-		memorySizeBytes := int64(cfg.MemoryCache.MaxSizeMB) * 1024 * 1024
-		maxItems := int64(cfg.MemoryCache.MaxItems)
-		
-		// Use reasonable default for MaxItems if not specified
-		if maxItems == 0 {
-			maxItems = int64(cfg.MemoryCache.MaxSizeMB) // Estimate: ~1MB per item
-		}
-		
-		memCache, err := cache.NewMemoryCache(cache.MemoryCacheConfig{
-			Name:     cfg.StorageName,
-			MaxSize:  memorySizeBytes,
-			MaxItems: maxItems,
-			TTL:      cfg.DiskCache.TTL,
-		})
-		if err != nil {
-			log.Printf("[CachedStorage:%s] Failed to init memory cache: %v", cfg.StorageName, err)
-		} else {
-			cs.memoryCache = memCache
-			log.Printf("[CachedStorage:%s] Enabled in-memory cache: %dMB, max items: %d", cfg.StorageName, cfg.MemoryCache.MaxSizeMB, maxItems)
-		}
-	}
-
-	return cs, nil
-}
-
 // GetObject retrieves an object through the multi-layer cache hierarchy
 // 1. Check memory cache (fastest)
 // 2. Check file cache
 // 3. Fetch from underlying storage and populate caches
 func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, error) {
 	cacheKey := "source:" + key
-	
+
 	// Layer 1: Check memory cache first (if enabled)
 	if cs.memoryCache != nil {
 		if data, found := cs.memoryCache.Get(cacheKey); found {
@@ -162,7 +74,7 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 // Returns (data, found, error) where found indicates if the thumbnail was in cache
 func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
 	thumbnailKey := "thumb:" + cacheKey
-	
+
 	// Layer 1: Check memory cache first (if enabled)
 	if cs.memoryCache != nil {
 		if data, found := cs.memoryCache.Get(thumbnailKey); found {
@@ -190,7 +102,7 @@ func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
 // SetThumbnail stores a thumbnail in the cache
 func (cs *CachedStorage) SetThumbnail(cacheKey string, data []byte) error {
 	thumbnailKey := "thumb:" + cacheKey
-	
+
 	// Memory cache first (fast, non-blocking)
 	if cs.memoryCache != nil {
 		cs.memoryCache.Set(thumbnailKey, data, cs.diskCache.TTL)

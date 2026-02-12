@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
+
+	"github.com/sashko-guz/mage/internal/storage/drivers"
 )
 
 type StorageDriver string
@@ -31,21 +34,10 @@ type StorageItem struct {
 	BaseURL   string `json:"base_url,omitempty"` // Custom endpoint for S3-compatible storage
 
 	// S3 HTTP client tuning (optional, with sensible defaults)
-	S3HTTPConfig *S3HTTPConfig `json:"s3_http_config,omitempty"`
+	S3HTTPConfig *drivers.S3HTTPConfig `json:"s3_http_config,omitempty"`
 
 	// Local specific fields
 	Root string `json:"root,omitempty"`
-}
-
-// S3HTTPConfig contains HTTP client configuration for S3 connections
-type S3HTTPConfig struct {
-	MaxIdleConns          int `json:"max_idle_conns,omitempty"`              // Max idle connections across all hosts (default: 100)
-	MaxIdleConnsPerHost   int `json:"max_idle_conns_per_host,omitempty"`     // Max idle connections per host (default: 100)
-	MaxConnsPerHost       int `json:"max_conns_per_host,omitempty"`          // Max total connections per host (default: 0 = unlimited)
-	IdleConnTimeout       int `json:"idle_conn_timeout_sec,omitempty"`       // Idle connection timeout in seconds (default: 90)
-	ConnectTimeout        int `json:"connect_timeout_sec,omitempty"`         // Connection timeout in seconds (default: 10)
-	RequestTimeout        int `json:"request_timeout_sec,omitempty"`         // Full request timeout in seconds (default: 30)
-	ResponseHeaderTimeout int `json:"response_header_timeout_sec,omitempty"` // Response header timeout in seconds (default: 10)
 }
 
 // MemoryCacheOptions defines configuration for in-memory cache
@@ -75,6 +67,31 @@ type StorageConfig struct {
 	Storages []StorageItem `json:"storages"`
 }
 
+// DiskCacheConfig contains configuration for disk-based cache
+// The cache stores both source images and thumbnails with a unified size limit
+type DiskCacheConfig struct {
+	Enabled        bool
+	BasePath       string
+	TTL            time.Duration
+	ClearOnStartup bool
+	MaxSizeMB      int // Maximum total cache size for sources + thumbnails in MB (0 = unlimited)
+}
+
+// MemoryCacheConfig contains configuration for in-memory cache
+// The cache stores both source images and thumbnails with a unified size limit
+type MemoryCacheConfig struct {
+	Enabled   bool
+	MaxSizeMB int // Maximum total memory for sources + thumbnails in megabytes
+	MaxItems  int // Maximum number of cached items (sources + thumbnails combined)
+}
+
+// CachedStorageConfig contains configuration for cached storage
+type CachedStorageConfig struct {
+	StorageName string
+	DiskCache   *DiskCacheConfig
+	MemoryCache *MemoryCacheConfig
+}
+
 func LoadStorageConfig(configPath string) (*StorageConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -87,51 +104,4 @@ func LoadStorageConfig(configPath string) (*StorageConfig, error) {
 	}
 
 	return &config, nil
-}
-
-func InitializeStorages(config *StorageConfig) (map[string]Storage, error) {
-	storages := make(map[string]Storage)
-
-	for _, cfg := range config.Storages {
-		var store Storage
-		var err error
-
-		switch cfg.Driver {
-		case DriverS3:
-			if cfg.Bucket == "" {
-				return nil, fmt.Errorf("storage '%s': bucket is required for S3 driver", cfg.Name)
-			}
-			if cfg.Region == "" {
-				cfg.Region = "us-east-1" // default region
-			}
-			// Require credentials when using custom base_url (S3-compatible storage)
-			if cfg.BaseURL != "" && (cfg.AccessKey == "" || cfg.SecretKey == "") {
-				return nil, fmt.Errorf("storage '%s': access_key and secret_key are required when using base_url for S3-compatible storage", cfg.Name)
-			}
-			store, err = NewS3Client(cfg.Region, cfg.AccessKey, cfg.SecretKey, cfg.Bucket, cfg.BaseURL, cfg.S3HTTPConfig)
-			if err != nil {
-				return nil, fmt.Errorf("storage '%s': failed to initialize S3: %w", cfg.Name, err)
-			}
-
-		case DriverLocal:
-			if cfg.Root == "" {
-				return nil, fmt.Errorf("storage '%s': root is required for local driver", cfg.Name)
-			}
-			store, err = NewLocalStorage(cfg.Root)
-			if err != nil {
-				return nil, fmt.Errorf("storage '%s': failed to initialize local storage: %w", cfg.Name, err)
-			}
-
-		default:
-			return nil, fmt.Errorf("storage '%s': unknown driver '%s'", cfg.Name, cfg.Driver)
-		}
-
-		storages[cfg.Name] = store
-	}
-
-	if len(storages) == 0 {
-		return nil, fmt.Errorf("no storages configured")
-	}
-
-	return storages, nil
 }
