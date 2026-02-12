@@ -18,7 +18,7 @@ import (
 // formatBytes converts bytes to human-readable format
 func formatBytes(bytes int64) string {
 	if bytes == 0 {
-		return "unlimited"
+		return "0"
 	}
 	units := []string{"B", "KB", "MB", "GB"}
 	size := float64(bytes)
