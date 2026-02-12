@@ -218,7 +218,7 @@ func isValidSignature(sig string) bool {
 
 // GenerateSignature creates HMAC-SHA256 signature for the request parameters
 // Payload includes: width:height:filterString:path
-// Secret key is taken from SIGNATURE_SECRET_KEY environment variable
+// Secret key is taken from storage configuration signature_secret field
 func GenerateSignature(width, height int, filterString, path, secretKey string) string {
 	// Build payload from all parameters that need protection
 	payload := fmt.Sprintf("%d:%d:%s:%s",

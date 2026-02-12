@@ -26,7 +26,7 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 	// Step 2: Check if caching is configured
 	if cfg.Cache == nil {
 		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
-		return baseStorage, cfg.SignatureSecretKey, nil
+		return baseStorage, cfg.SignatureSecret, nil
 	}
 
 	// Check if any cache layer is enabled
@@ -35,7 +35,7 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 
 	if !diskEnabled && !memoryEnabled {
 		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
-		return baseStorage, cfg.SignatureSecretKey, nil
+		return baseStorage, cfg.SignatureSecret, nil
 	}
 
 	// Add cache info to log
@@ -57,7 +57,7 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 	}
 
 	log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
-	return cachedStorage, cfg.SignatureSecretKey, nil
+	return cachedStorage, cfg.SignatureSecret, nil
 }
 
 // createBaseStorage creates the underlying storage driver (S3 or local)

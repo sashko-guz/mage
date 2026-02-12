@@ -93,7 +93,7 @@ Configure your storage in `storage.json`. See example files for reference:
 
 **Storage Settings:**
 - `driver` - Storage backend: `"local"` or `"s3"`
-- `signature_secret_key` - HMAC signature validation secret key (optional)
+- `signature_secret` - HMAC signature validation secret key (optional)
 
 **Local Storage:**
 - `root` - Root directory path for local storage (required for local driver)
@@ -182,14 +182,14 @@ Specifies how the image fits within the requested dimensions.
 /thumbs/200x350/filters:format(webp);quality(90);fit(fill,black)/path/to/image.jpg
 ```
 
-**With signature (required when `signature_secret_key` is configured):**
+**With signature (required when `signature_secret` is configured):**
 ```
 /thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/path/to/image.jpg
 ```
 
 ### Signature Generation
 
-When `signature_secret_key` is configured in storage settings, all requests must include a valid HMAC-SHA256 signature. The signature is calculated over all parameters after it in the URL.
+When `signature_secret` is configured in storage settings, all requests must include a valid HMAC-SHA256 signature. The signature is calculated over all parameters after it in the URL.
 
 **Signature components (in order):**
 1. Size (e.g., `200x350`)
@@ -227,7 +227,7 @@ Mage implements a sophisticated multi-layer caching system for maximum performan
 {
   "driver": "local",
   "root": "/var/www/uploads",
-  "signature_secret_key": "your-secret-key-here",
+  "signature_secret": "your-secret-key-here",
   "cache": {
     "memory": {
       "enabled": true,
@@ -253,7 +253,7 @@ Mage implements a sophisticated multi-layer caching system for maximum performan
   "region": "us-west-1",
   "access_key": "YOUR_ACCESS_KEY",
   "secret_key": "YOUR_SECRET_KEY",
-  "signature_secret_key": "your-secret-key-here",
+  "signature_secret": "your-secret-key-here",
   "cache": {
     "memory": {
       "enabled": true,
