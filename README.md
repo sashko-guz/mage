@@ -25,7 +25,7 @@ Mage is an HTTP image processing service that:
 
 ## Tech Stack
 
-- **Go 1.25** - Programming language
+- **Go 1.26** - Programming language
 - **libvips 8.18** - High-performance image processing library
 - **Docker** - Containerization
 - **AWS SDK v2** - S3 storage integration
@@ -34,7 +34,7 @@ Mage is an HTTP image processing service that:
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - Docker (optional)
 - libvips 8.18
 
