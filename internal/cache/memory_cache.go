@@ -30,17 +30,11 @@ func NewMemoryCache(cfg MemoryCacheConfig) (*MemoryCache, error) {
 
 	if cfg.MaxItems == 0 {
 		// Estimate: assume average item is ~100KB
-		cfg.MaxItems = cfg.MaxSize / (100 * 1024)
-		if cfg.MaxItems < 100 {
-			cfg.MaxItems = 100
-		}
+		cfg.MaxItems = max(cfg.MaxSize/(100*1024), 100)
 	}
 
 	if cfg.BufferItems == 0 {
-		cfg.BufferItems = cfg.MaxItems * 10
-		if cfg.BufferItems < 1000 {
-			cfg.BufferItems = 1000
-		}
+		cfg.BufferItems = max(cfg.MaxItems*10, 1000)
 	}
 
 	cache, err := ristretto.NewCache(&ristretto.Config{
@@ -121,7 +115,7 @@ func (mc *MemoryCache) GetMetrics() *ristretto.Metrics {
 }
 
 // GetStats returns formatted cache statistics
-func (mc *MemoryCache) GetStats() map[string]interface{} {
+func (mc *MemoryCache) GetStats() map[string]any {
 	metrics := mc.cache.Metrics
 
 	hits := metrics.Hits()
@@ -133,7 +127,7 @@ func (mc *MemoryCache) GetStats() map[string]interface{} {
 		hitRatio = float64(hits) / float64(total)
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"hits":         hits,
 		"misses":       misses,
 		"total":        total,

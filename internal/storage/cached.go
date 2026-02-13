@@ -147,9 +147,9 @@ func (cs *CachedStorage) CacheStats() (count int, totalSize int64, err error) {
 }
 
 // GetMemoryCacheStats returns memory cache statistics if enabled
-func (cs *CachedStorage) GetMemoryCacheStats() map[string]interface{} {
+func (cs *CachedStorage) GetMemoryCacheStats() map[string]any {
 	if cs.memoryCache == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"enabled": false,
 		}
 	}

@@ -9,8 +9,8 @@ import (
 )
 
 type ThumbnailRequest struct {
-	Width             *int   // nil means preserve aspect ratio or original size
-	Height            *int   // nil means preserve aspect ratio or original size
+	Width             *int // nil means preserve aspect ratio or original size
+	Height            *int // nil means preserve aspect ratio or original size
 	Format            string
 	Quality           int
 	Fit               string
@@ -173,9 +173,9 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 
 // parseFilters parses filter string with semicolon-separated filters
 func parseFilters(filterString string, req *ThumbnailRequest) {
-	filters := strings.Split(filterString, ";")
+	filters := strings.SplitSeq(filterString, ";")
 
-	for _, filter := range filters {
+	for filter := range filters {
 		filter = strings.TrimSpace(filter)
 
 		// Extract format

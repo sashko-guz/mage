@@ -115,7 +115,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Use singleflight to deduplicate concurrent identical requests
 	// Do or wait for result (returns value, error, shared bool)
-	result, err, isDuplicate := h.singleflight.Do(cacheKey, func() (interface{}, error) {
+	result, err, isDuplicate := h.singleflight.Do(cacheKey, func() (any, error) {
 		// Limit concurrent processing to reduce CPU/memory thrash under load
 		h.processSem <- struct{}{}
 		defer func() { <-h.processSem }()

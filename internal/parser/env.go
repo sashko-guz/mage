@@ -29,7 +29,7 @@ func findEnvFile() string {
 	}
 
 	// Search up to 5 levels up
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		envPath := filepath.Join(cwd, ".env")
 		if _, err := os.Stat(envPath); err == nil {
 			return envPath
