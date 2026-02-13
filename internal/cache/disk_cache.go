@@ -90,7 +90,7 @@ func NewDiskCache(basePath string, ttl time.Duration, clearOnStartup bool, maxSi
 	// Start background cleanup goroutine
 	go dc.cleanupExpired()
 
-	log.Printf("[DiskCache] Initialized with base path: %s, TTL: %v, MaxSize: %v, cleanup interval: 30s (adaptive backoff)", absPath, ttl, formatBytes(maxSizeBytes))
+	log.Printf("[DiskCache] Initialized: BasePath=%s, TTL=%v, MaxSize=%v, CleanupInterval=30s (adaptive backoff)", absPath, ttl, formatBytes(maxSizeBytes))
 	return dc, nil
 }
 

@@ -109,11 +109,14 @@ Configure your storage in `storage.json`. See example files for reference:
 - `cache.memory.enabled` - Enable in-memory cache (default: `false`)
 - `cache.memory.max_size_mb` - Maximum memory cache size in MB
 - `cache.memory.max_items` - Maximum number of cached items (default: 1000)
+- `cache.memory.ttl_seconds` - Cache time-to-live in seconds (optional, default: 300)
 - `cache.disk.enabled` - Enable disk cache (default: `false`)
 - `cache.disk.ttl_seconds` - Cache time-to-live in seconds (default: 300)
 - `cache.disk.max_size_mb` - Maximum disk cache size in MB (0 = unlimited)
 - `cache.disk.dir` - Cache directory path (required if disk cache enabled)
 - `cache.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
+
+**Note:** You can enable memory cache only, disk cache only, both, or neither. When both are enabled, memory cache is checked first for maximum performance.
 
 ## URL Filters and API
 
@@ -198,17 +201,20 @@ When `signature_secret` is configured in storage settings, all requests must inc
 
 ## Multi-Layer Caching
 
-Mage implements a sophisticated multi-layer caching system for maximum performance:
+Mage implements a flexible multi-layer caching system for maximum performance. You can use memory cache only, disk cache only, both caches together, or no caching at all.
 
 ### Cache Hierarchy
 
-1. **Layer 1: In-Memory Cache (Optional)** - Fastest, configurable per storage
+When multiple cache layers are enabled, they are checked in order:
+
+1. **Layer 1: In-Memory Cache (Optional)** - Fastest
    - Uses Ristretto LRU cache with cost-based eviction
-   - Configured via `memory.enabled` and `memory.max_size_mb` in storages.json
+   - Configured via `memory.enabled`, `memory.max_size_mb`, and `memory.ttl_seconds`
    - Provides 50-200μs latency (vs 3-8ms disk I/O)
    - **Performance:** +200-500% RPS for hot images
+   - Can be used independently without disk cache
 
-2. **Layer 2: Disk-Based Cache** - Persistent disk cache
+2. **Layer 2: Disk-Based Cache (Optional)** - Persistent
    - Hierarchical directory structure for scalability
    - Expiration-based eviction (TTL) + size-based eviction (LRU)
    - **Asynchronous cleanup:** Background goroutine runs periodic cleanup (~30s interval, adaptive backoff)
@@ -216,13 +222,16 @@ Mage implements a sophisticated multi-layer caching system for maximum performan
      - Enforces size limit (deletes oldest files if cache exceeds `max_size_mb`)
      - Cleanup frequency adapts: backs off when idle, increases during high deletion rates
    - Survives server restarts
+   - Can be used independently without memory cache
 
 3. **Layer 3: Source Storage** - S3, local filesystem, etc.
    - Only accessed on cache miss
 
+**When both caches are enabled:** Memory cache is checked first, then disk cache, then source storage. Items found in disk cache are automatically promoted to memory cache for faster subsequent access.
+
 ### Configuration Examples
 
-**Local storage with caching enabled (storage.local.example.json):**
+**Both caches enabled (memory + disk):**
 ```json
 {
   "driver": "local",
@@ -232,7 +241,8 @@ Mage implements a sophisticated multi-layer caching system for maximum performan
     "memory": {
       "enabled": true,
       "max_size_mb": 512,
-      "max_items": 1000
+      "max_items": 1000,
+      "ttl_seconds": 300
     },
     "disk": {
       "enabled": true,
@@ -245,33 +255,26 @@ Mage implements a sophisticated multi-layer caching system for maximum performan
 }
 ```
 
-**S3 storage with caching enabled (storage.s3.example.json):**
+**Memory cache only (no persistence):**
 ```json
 {
-  "driver": "s3",
-  "bucket": "my-bucket",
-  "region": "us-west-1",
-  "access_key": "YOUR_ACCESS_KEY",
-  "secret_key": "YOUR_SECRET_KEY",
-  "signature_secret": "your-secret-key-here",
+  "driver": "local",
+  "root": "/var/www/uploads",
   "cache": {
     "memory": {
       "enabled": true,
-      "max_size_mb": 1024,
-      "max_items": 1000
+      "max_size_mb": 512,
+      "max_items": 1000,
+      "ttl_seconds": 300
     },
     "disk": {
-      "enabled": true,
-      "ttl_seconds": 100,
-      "max_size_mb": 10240,
-      "dir": "/var/cache/mage",
-      "clear_on_startup": false
+      "enabled": false
     }
   }
 }
 ```
 
-**Without caching:**
+**Disk cache only (persistent):**
 ```json
 {
   "driver": "local",
@@ -281,9 +284,21 @@ Mage implements a sophisticated multi-layer caching system for maximum performan
       "enabled": false
     },
     "disk": {
-      "enabled": false
+      "enabled": true,
+      "ttl_seconds": 300,
+      "max_size_mb": 5120,
+      "dir": "/var/cache/mage",
+      "clear_on_startup": false
     }
   }
+}
+```
+
+**No caching (direct storage access only):**
+```json
+{
+  "driver": "local",
+  "root": "/var/www/uploads"
 }
 ```
 
@@ -297,12 +312,25 @@ With memory cache enabled:
 
 ### Cache Configuration Guide
 
-**In-Memory Cache (`memory.max_size_mb`):**
-- **256MB:** Small sites, limited hot images (~2500 cached thumbnails @ 100KB each)
-- **512MB:** Medium traffic sites with moderate hot set
-- **1024MB:** High traffic sites, large hot image set
-- **2048MB+:** Very high traffic, extensive hot content
-- `max_items` automatically defaults to approximately `max_size_mb / 100` MB (assuming ~100KB average item size)
+**Cache Strategy Selection:**
+- **No cache:** - Simple deployments, rarely accessed images, or when using CDN
+- **Memory only:** - Development, ephemeral environments (Docker containers), hot content only
+- **Disk only:** - Persistent caching, limited RAM, server restarts common
+- **Both (recommended):** - Production, high traffic, optimal performance with persistence
+
+**In-Memory Cache (`memory.max_size_mb` and `memory.ttl_seconds`):**
+- **Size:**
+  - **256MB:** Small sites, limited hot images (~2500 cached thumbnails @ 100KB each)
+  - **512MB:** Medium traffic sites with moderate hot set
+  - **1024MB:** High traffic sites, large hot image set
+  - **2048MB+:** Very high traffic, extensive hot content
+  - `max_items` automatically defaults to approximately `max_size_mb` (assuming ~1MB average item size)
+- **TTL:**
+  - **Default:** 300 seconds (5 minutes) if not specified
+  - **60-300s:** Development or frequently changing content
+  - **300-900s:** Typical production setting
+  - **900s+:** Static content that rarely changes
+  - If disk cache is also enabled but memory TTL is not specified, inherits disk cache TTL
 
 **Disk Cache (`disk.ttl_seconds` and `disk.max_size_mb`):**
 - **TTL (Time-To-Live):**
@@ -319,8 +347,12 @@ With memory cache enabled:
   - **Cleanup happens asynchronously:** Cache cleanup runs periodically (default: every 30 seconds). When cache size exceeds the limit, oldest files are deleted during the next cleanup cycle. **Cache may temporarily exceed size limit** during heavy write periods between cleanup runs.
 
 **Optimization Tips:**
-- Caching is **disabled by default** for both memory and disk unless explicitly enabled
-- **Cleanup runs asynchronously:** Background cleanup goroutine scans cache every ~30 seconds. It:
+- Caching is **disabled by default** - you must explicitly enable the cache layers you want
+- **Memory-only cache** is ideal for development and containerized deployments where persistence isn't needed
+- **Disk-only cache** works well when RAM is limited but you want persistent caching across restarts
+- **Both caches together** provide the best performance: memory for hot content, disk for persistence
+- **TTL priority:** If memory cache TTL is specified, it takes precedence over disk cache TTL for memory entries
+- **Cleanup runs asynchronously (disk cache only):** Background goroutine scans cache every ~30 seconds:
   - Deletes expired files (based on TTL)
   - Evicts oldest files if cache exceeds `max_size_mb`
   - Adapts cleanup frequency: backs off when no expired files, runs frequently during high deletion rates
@@ -328,7 +360,7 @@ With memory cache enabled:
 - Monitor hit ratio and adjust `max_items` and `max_size_mb` accordingly
 - Target 60-80% hit rate for in-memory cache with hot content
 - Use `clear_on_startup: true` during development, `false` in production
-- Adjust `max_items` to control memory usage more precisely with different image sizes
+- When both caches are enabled, items found in disk cache are automatically promoted to memory cache
 
 ## S3 HTTP Client Optimization
 
@@ -367,38 +399,6 @@ Add `s3_http_config` to your S3 storage configuration in `storage.json`:
 - `connect_timeout_sec` - Connection establishment timeout (default: 10)
 - `request_timeout_sec` - Full request timeout including data transfer (default: 30)
 - `response_header_timeout_sec` - Time to wait for response headers (default: 10)
-
-### Performance Impact
-
-**Default AWS SDK (2 connections):**
-- New TCP handshake per request (~30ms overhead)
-- Connection pool exhaustion under load
-- Requests queue waiting for connections
-
-**Optimized (100+ connections):**
-- **+40-80% RPS** for S3-backed thumbnails
-- **-30ms latency** per request (connection reuse)
-- **P95 latency:** 180ms → 120ms
-- **Prevents hung requests** with proper timeouts
-- **HTTP/2 multiplexing** enabled automatically
-
-### Real-World Example
-
-**Before optimization:**
-- 300 RPS with 2 connection pool
-- Frequent connection timeouts
-- P99 latency: 450ms
-
-**After optimization:**  
-- 450-500 RPS with 100 connection pool
-- No timeouts (protected by request_timeout)
-- P99 latency: 150ms
-
-**Critical for:**
-- High traffic S3-backed services
-- Multiple concurrent thumbnail requests
-- Cold cache scenarios (cache misses)
-- S3-compatible storage (MinIO, Cloudflare R2, etc.)
 
 ## Project Structure
 

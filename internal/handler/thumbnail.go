@@ -25,7 +25,7 @@ type ThumbnailHandler struct {
 	processor    *processor.ImageProcessor
 	singleflight *singleflight.Group
 	processSem   chan struct{}
-	signatureKey string // Signature key for HMAC validation
+	signer       *parser.Signature // URL signature handler
 }
 
 func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcessor, signatureKey string) (*ThumbnailHandler, error) {
@@ -34,7 +34,7 @@ func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcess
 		processor:    processor,
 		singleflight: &singleflight.Group{},
 		processSem:   make(chan struct{}, 16), // limit concurrent vips work to avoid crash
-		signatureKey: signatureKey,
+		signer:       parser.NewSignature(signatureKey),
 	}, nil
 }
 
@@ -47,13 +47,27 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[ThumbnailHandler] Processing thumbnail: path=%s, size=%dx%d, format=%s, quality=%d, fit=%s, fillColor=%s",
-		req.Path, req.Width, req.Height, req.Format, req.Quality, req.Fit, req.FillColor)
+	// Format size for logging
+	var sizeStr string
+	if req.Width == nil && req.Height == nil {
+		sizeStr = "original"
+	} else if req.Width == nil {
+		sizeStr = fmt.Sprintf("x%d", *req.Height)
+	} else if req.Height == nil {
+		sizeStr = fmt.Sprintf("%dx", *req.Width)
+	} else {
+		sizeStr = fmt.Sprintf("%dx%d", *req.Width, *req.Height)
+	}
 
-	// Verify signature if secret key is configured
-	if !parser.VerifySignature(req, h.signatureKey) {
-		log.Printf("[ThumbnailHandler] Invalid signature for request: %s", r.URL.String())
-		http.Error(w, "Invalid signature", http.StatusForbidden)
+	log.Printf("[ThumbnailHandler] Processing thumbnail: path=%s, size=%s, format=%s, quality=%d, fit=%s, fillColor=%s",
+		req.Path, sizeStr, req.Format, req.Quality, req.Fit, req.FillColor)
+
+	// Verify signature if enabled
+	if err := h.signer.Verify(req); err != nil {
+		log.Printf("[ThumbnailHandler] Signature validation failed: %v (url=%s)", err, r.URL.String())
+		// Return 404 instead of 403 to avoid information disclosure
+		// This prevents revealing whether a resource exists when signature is invalid
+		http.Error(w, fmt.Sprintf("Signature validation failed: %v", err), http.StatusNotFound)
 		return
 	}
 
@@ -77,7 +91,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				// Send cached response
 				w.Header().Set("Content-Type", thumbnail.ContentType)
-				w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 1 day
+				w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
 				w.Header().Set("X-Cache", "HIT")
 
 				// Check if client accepts gzip
@@ -162,7 +176,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Send response
 	w.Header().Set("Content-Type", thumbnail.ContentType)
-	w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 1 day
+	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
 	w.Header().Set("X-Cache", "MISS")
 
 	// Check if client accepts gzip

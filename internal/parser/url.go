@@ -1,9 +1,6 @@
 package parser
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -12,8 +9,8 @@ import (
 )
 
 type ThumbnailRequest struct {
-	Width             int
-	Height            int
+	Width             *int   // nil means preserve aspect ratio or original size
+	Height            *int   // nil means preserve aspect ratio or original size
 	Format            string
 	Quality           int
 	Fit               string
@@ -24,7 +21,8 @@ type ThumbnailRequest struct {
 }
 
 var (
-	sizeRegex    = regexp.MustCompile(`^(\d+)x(\d+)$`)
+	// Size patterns: 100x100, x100, 500x, or x
+	sizeRegex    = regexp.MustCompile(`^(\d*)x(\d*)$`)
 	formatRegex  = regexp.MustCompile(`format\((\w+)\)`)
 	qualityRegex = regexp.MustCompile(`quality\((\d+)\)`)
 	fitRegex     = regexp.MustCompile(`fit\(([^)]+)\)`)
@@ -88,21 +86,42 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 		req.ProvidedSignature = ""
 	}
 
-	// Parse size (e.g., "200x350")
+	// Parse size (e.g., "200x350", "x100", "500x", or "x")
 	sizeMatch := sizeRegex.FindStringSubmatch(parts[sizeIndex])
 	if sizeMatch == nil {
-		return nil, fmt.Errorf("invalid size format, expected {width}x{height}")
+		return nil, fmt.Errorf("invalid size format, expected {width}x{height}, x{height}, {width}x, or x")
 	}
 
-	var err error
-	req.Width, err = strconv.Atoi(sizeMatch[1])
-	if err != nil {
-		return nil, fmt.Errorf("invalid width: %w", err)
-	}
+	widthStr := sizeMatch[1]
+	heightStr := sizeMatch[2]
 
-	req.Height, err = strconv.Atoi(sizeMatch[2])
-	if err != nil {
-		return nil, fmt.Errorf("invalid height: %w", err)
+	// Both empty means original size (just "x")
+	if widthStr == "" && heightStr == "" {
+		// Original size - both nil
+		req.Width = nil
+		req.Height = nil
+	} else {
+		// Parse width if provided
+		if widthStr != "" {
+			w, err := strconv.Atoi(widthStr)
+			if err != nil || w <= 0 {
+				return nil, fmt.Errorf("invalid width: must be positive integer")
+			}
+			req.Width = &w
+		} else {
+			req.Width = nil
+		}
+
+		// Parse height if provided
+		if heightStr != "" {
+			h, err := strconv.Atoi(heightStr)
+			if err != nil || h <= 0 {
+				return nil, fmt.Errorf("invalid height: must be positive integer")
+			}
+			req.Height = &h
+		} else {
+			req.Height = nil
+		}
 	}
 
 	// Determine if we have filters or not
@@ -130,6 +149,12 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 	}
 
 	req.Path = filePath
+
+	// Validate: fit(fill) is incompatible with aspect ratio preserving sizes
+	isAspectRatioPreserving := req.Width == nil || req.Height == nil
+	if req.Fit == "fill" && isAspectRatioPreserving {
+		return nil, fmt.Errorf("fit(fill) is not compatible with aspect ratio preserving sizes (x{height}, {width}x, or x)")
+	}
 
 	// Set default FillColor based on format if not explicitly specified
 	if req.FillColor == "" && req.Fit == "fill" {
@@ -216,52 +241,6 @@ func isValidSignature(sig string) bool {
 	return true
 }
 
-// GenerateSignature creates HMAC-SHA256 signature for the request parameters
-// Payload includes: width:height:filterString:path
-// Secret key is taken from storage configuration signature_secret field
-func GenerateSignature(width, height int, filterString, path, secretKey string) string {
-	// Build payload from all parameters that need protection
-	payload := fmt.Sprintf("%d:%d:%s:%s",
-		width,
-		height,
-		filterString, // Empty string if no filters
-		path,
-	)
-
-	// Create HMAC-SHA256
-	h := hmac.New(sha256.New, []byte(secretKey))
-	h.Write([]byte(payload))
-
-	// Return first 16 hex chars (64-bit hash)
-	return hex.EncodeToString(h.Sum(nil))[:16]
-}
-
-// VerifySignature validates that the provided signature matches the expected signature
-func VerifySignature(req *ThumbnailRequest, secretKey string) bool {
-	if secretKey == "" {
-		return req.ProvidedSignature == ""
-	}
-
-	if req.ProvidedSignature == "" {
-		// If signature validation is enabled but no signature provided, reject
-		return false
-	}
-
-	// Generate expected signature from request parameters
-	expectedSignature := GenerateSignature(
-		req.Width,
-		req.Height,
-		req.FilterString,
-		req.Path,
-		secretKey,
-	)
-
-	fmt.Printf("Expected signature: %s, Provided signature: %s\n", expectedSignature, req.ProvidedSignature)
-
-	// Compare provided signature with expected
-	return req.ProvidedSignature == expectedSignature
-}
-
 // GetCachePath generates hierarchical filesystem path for caching
 // Uses nginx-style distribution: last 3 chars of signature create 3-level hierarchy
 // Example: signature "a1b2c3d4e5f6g7h8" → basePath/8/7/h/a1b2c3d4e5f6g7h8/200x350/path/image.jpg
@@ -275,33 +254,21 @@ func GetCachePath(basePath string, req *ThumbnailRequest) string {
 	level3 := sig[len-3 : len-2] // third to last
 
 	// Build hierarchical path: base/l1/l2/l3/signature/dimensions/imagePath
-	dimensionDir := fmt.Sprintf("%dx%d", req.Width, req.Height)
+	dimensionDir := formatSizeString(req.Width, req.Height)
 
 	return filepath.Join(basePath, level1, level2, level3, sig, dimensionDir, req.Path)
 }
 
-// GenerateURL creates a signed URL from request parameters
-// Useful for generating URLs programmatically
-// If secretKey is empty, signature is omitted from the URL
-func GenerateURL(width, height int, filterString, path, secretKey string) string {
-	if secretKey == "" {
-		// No signature - generate URL without signature
-		if filterString != "" {
-			return fmt.Sprintf("/thumbs/%dx%d/filters:%s/%s",
-				width, height, filterString, path)
-		}
-		return fmt.Sprintf("/thumbs/%dx%d/%s",
-			width, height, path)
+// formatSizeString converts optional width/height to URL size string
+func formatSizeString(width, height *int) string {
+	if width == nil && height == nil {
+		return "x"
 	}
-
-	// Generate signature
-	signature := GenerateSignature(width, height, filterString, path, secretKey)
-
-	// Build URL with signature
-	if filterString != "" {
-		return fmt.Sprintf("/thumbs/%s/%dx%d/filters:%s/%s",
-			signature, width, height, filterString, path)
+	if width == nil {
+		return fmt.Sprintf("x%d", *height)
 	}
-	return fmt.Sprintf("/thumbs/%s/%dx%d/%s",
-		signature, width, height, path)
+	if height == nil {
+		return fmt.Sprintf("%dx", *width)
+	}
+	return fmt.Sprintf("%dx%d", *width, *height)
 }

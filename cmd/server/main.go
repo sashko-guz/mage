@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,81 +17,118 @@ import (
 )
 
 func main() {
-	// Configure logging to stderr with timestamps
-	log.SetOutput(os.Stderr)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	setupLogging()
 
-	// Load .env file if it exists (optional)
-	_ = godotenv.Load()
+	if err := run(); err != nil {
+		log.Fatalf("[Server] Fatal error: %v", err)
+	}
+}
 
-	// Load configuration
-	cfg := config.Load()
+func run() error {
+	cfg := loadConfig()
 
-	log.Printf("[Server] Starting image processing server…")
+	log.Printf("[Server] Starting…")
 	log.Printf("[Server] Storage config loaded from: %s", cfg.StorageConfigPath)
 
-	// Configure libvips concurrency if provided
-	var vipsCfg *vips.Config
-	if vipsConcurrency := os.Getenv("VIPS_CONCURRENCY"); vipsConcurrency != "" {
-		conc, err := strconv.Atoi(vipsConcurrency)
-		if err != nil || conc <= 0 {
-			log.Printf("[Server] Ignoring VIPS_CONCURRENCY=%q (must be positive integer)", vipsConcurrency)
-		} else {
-			vipsCfg = &vips.Config{ConcurrencyLevel: conc}
-			log.Printf("[Server] libvips concurrency set to %d via VIPS_CONCURRENCY", conc)
-		}
-	}
-
+	vipsCfg := configureVips()
 	vips.Startup(vipsCfg)
 	defer vips.Shutdown()
 
-	// Load storage configuration from JSON
-	storageConfig, err := storage.LoadConfig(cfg.StorageConfigPath)
+	stor, signatureKey, err := initializeStorage(cfg.StorageConfigPath)
 	if err != nil {
-		log.Fatalf("[Server] Failed to load storage config: %v", err)
+		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	// Initialize storage (with cache layers if configured)
+	srv := setupServer(cfg, stor, signatureKey)
+
+	logServerInfo(cfg.Port, signatureKey)
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("server failed: %w", err)
+	}
+
+	return nil
+}
+
+func setupLogging() {
+	log.SetOutput(os.Stderr)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+}
+
+func loadConfig() *config.Config {
+	_ = godotenv.Load()
+	return config.Load()
+}
+
+func configureVips() *vips.Config {
+	vipsConcurrency := os.Getenv("VIPS_CONCURRENCY")
+	if vipsConcurrency == "" {
+		return nil
+	}
+
+	conc, err := strconv.Atoi(vipsConcurrency)
+	if err != nil || conc <= 0 {
+		log.Printf("[Server] Ignoring VIPS_CONCURRENCY=%q (must be positive integer)", vipsConcurrency)
+		return nil
+	}
+
+	log.Printf("[Server] libvips concurrency set to %d via VIPS_CONCURRENCY", conc)
+	return &vips.Config{ConcurrencyLevel: conc}
+}
+
+func initializeStorage(configPath string) (storage.Storage, string, error) {
+	storageConfig, err := storage.LoadConfig(configPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load storage config: %w", err)
+	}
+
 	stor, signatureKey, err := storage.NewStorage(storageConfig)
 	if err != nil {
-		log.Fatalf("[Server] Failed to initialize storage: %v", err)
+		return nil, "", fmt.Errorf("failed to create storage: %w", err)
 	}
 
-	// Initialize image processor
+	return stor, signatureKey, nil
+}
+
+func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) *http.Server {
 	imageProcessor := processor.NewImageProcessor()
 
-	// Initialize handler
 	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, signatureKey)
 	if err != nil {
 		log.Fatalf("[Server] Failed to initialize thumbnail handler: %v", err)
 	}
 
-	// Setup routes
-	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isThumbnailPath(r.URL.Path) {
-			thumbnailHandler.ServeHTTP(w, r)
-			return
-		}
-		if r.URL.Path == "/health" {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK"))
-			return
-		}
-		http.NotFound(w, r)
-	})
+	mux := buildRoutes(thumbnailHandler)
 
-	// Start server
-	addr := ":" + cfg.Port
+	return &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: mux,
+	}
+}
+
+func buildRoutes(thumbnailHandler *handler.ThumbnailHandler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+			case isThumbnailPath(r.URL.Path):
+				thumbnailHandler.ServeHTTP(w, r)
+			case r.URL.Path == "/health":
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			default:
+				http.NotFound(w, r)
+		}
+	})
+}
+
+func logServerInfo(port, signatureKey string) {
+	addr := ":" + port
 	log.Printf("[Server] Server listening on %s", addr)
 	log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
+
 	if signatureKey != "" {
 		log.Printf("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(88)/image.jpg", addr)
 	} else {
 		log.Printf("[Server] Example: http://localhost%s/thumbs/400x300/filters:format(webp);quality(88)/image.jpg", addr)
-	}
-
-	if err := http.ListenAndServe(addr, rootHandler); err != nil {
-		log.Fatalf("[Server] Server failed to start: %v", err)
 	}
 }
 

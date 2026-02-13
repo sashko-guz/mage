@@ -42,9 +42,10 @@ type StorageConfig struct {
 // MemoryCacheOptions defines configuration for in-memory cache
 // This cache stores both source images and generated thumbnails with a unified size limit
 type MemoryCacheOptions struct {
-	Enabled   *bool `json:"enabled,omitempty"`
-	MaxSizeMB int   `json:"max_size_mb,omitempty"` // Total memory limit for sources + thumbnails
-	MaxItems  int   `json:"max_items,omitempty"`   // Maximum number of cached items (sources + thumbnails)
+	Enabled    *bool `json:"enabled,omitempty"`
+	MaxSizeMB  int   `json:"max_size_mb,omitempty"`  // Total memory limit for sources + thumbnails
+	MaxItems   int   `json:"max_items,omitempty"`    // Maximum number of cached items (sources + thumbnails)
+	TTLSeconds int   `json:"ttl_seconds,omitempty"` // Time-to-live for cache entries in seconds
 }
 
 // DiskCacheOptions defines configuration for disk-based cache
@@ -76,8 +77,9 @@ type DiskCacheConfig struct {
 // The cache stores both source images and thumbnails with a unified size limit
 type MemoryCacheConfig struct {
 	Enabled   bool
-	MaxSizeMB int // Maximum total memory for sources + thumbnails in megabytes
-	MaxItems  int // Maximum number of cached items (sources + thumbnails combined)
+	MaxSizeMB int           // Maximum total memory for sources + thumbnails in megabytes
+	MaxItems  int           // Maximum number of cached items (sources + thumbnails combined)
+	TTL       time.Duration // Time-to-live for cache entries
 }
 
 // CachedStorageConfig contains configuration for cached storage

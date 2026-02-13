@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/sashko-guz/mage/internal/cache"
 )
@@ -10,12 +11,13 @@ import (
 // CachedStorage wraps a Storage implementation with unified multi-layer caching
 // The cache stores BOTH source images and generated thumbnails with a shared size limit
 // Layer 1: In-memory LRU cache (fastest, optional) - unified for sources + thumbnails
-// Layer 2: Disk-based cache (persistent) - unified for sources + thumbnails
+// Layer 2: Disk-based cache (persistent, optional) - unified for sources + thumbnails
 // Layer 3: Underlying storage (S3, local, etc.) - only for source images
 type CachedStorage struct {
 	underlying  Storage
 	diskCache   *cache.DiskCache
 	memoryCache *cache.MemoryCache
+	ttl         time.Duration // TTL for cache entries
 }
 
 // GetObject retrieves an object through the multi-layer cache hierarchy
@@ -34,17 +36,19 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 		log.Printf("[CachedStorage] Memory cache miss for key: %s", key)
 	}
 
-	// Layer 2: Check disk cache
-	if data, err := cs.diskCache.Get(cacheKey); err == nil {
-		log.Printf("[CachedStorage] Disk cache HIT (source) for key: %s", key)
+	// Layer 2: Check disk cache (if enabled)
+	if cs.diskCache != nil {
+		if data, err := cs.diskCache.Get(cacheKey); err == nil {
+			log.Printf("[CachedStorage] Disk cache HIT (source) for key: %s", key)
 
-		// Populate memory cache for next time
-		if cs.memoryCache != nil {
-			cs.memoryCache.Set(cacheKey, data, cs.diskCache.TTL)
-			log.Printf("[CachedStorage] Promoted to memory cache: %s", key)
+			// Populate memory cache for next time
+			if cs.memoryCache != nil {
+				cs.memoryCache.Set(cacheKey, data, cs.ttl)
+				log.Printf("[CachedStorage] Promoted to memory cache: %s", key)
+			}
+
+			return data, nil
 		}
-
-		return data, nil
 	}
 
 	// Layer 3: Fetch from underlying storage (S3, local, etc.)
@@ -54,16 +58,18 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 		return nil, err
 	}
 
-	// Backfill both caches
+	// Backfill caches
 	// Memory cache first (fast, non-blocking)
 	if cs.memoryCache != nil {
-		cs.memoryCache.Set(cacheKey, data, cs.diskCache.TTL)
+		cs.memoryCache.Set(cacheKey, data, cs.ttl)
 	}
 
 	// Disk cache (slower, but persistent)
-	if err := cs.diskCache.Set(cacheKey, data); err != nil {
-		log.Printf("[CachedStorage] Error writing to disk cache: %v", err)
-		// Don't fail if caching fails, just return the data
+	if cs.diskCache != nil {
+		if err := cs.diskCache.Set(cacheKey, data); err != nil {
+			log.Printf("[CachedStorage] Error writing to disk cache: %v", err)
+			// Don't fail if caching fails, just return the data
+		}
 	}
 
 	return data, nil
@@ -82,17 +88,19 @@ func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
 		}
 	}
 
-	// Layer 2: Check disk cache
-	if data, err := cs.diskCache.Get(thumbnailKey); err == nil {
-		log.Printf("[CachedStorage] Disk cache HIT (thumbnail) for key: %s", cacheKey)
+	// Layer 2: Check disk cache (if enabled)
+	if cs.diskCache != nil {
+		if data, err := cs.diskCache.Get(thumbnailKey); err == nil {
+			log.Printf("[CachedStorage] Disk cache HIT (thumbnail) for key: %s", cacheKey)
 
-		// Populate memory cache for next time
-		if cs.memoryCache != nil {
-			cs.memoryCache.Set(thumbnailKey, data, cs.diskCache.TTL)
-			log.Printf("[CachedStorage] Promoted thumbnail to memory cache: %s", cacheKey)
+			// Populate memory cache for next time
+			if cs.memoryCache != nil {
+				cs.memoryCache.Set(thumbnailKey, data, cs.ttl)
+				log.Printf("[CachedStorage] Promoted thumbnail to memory cache: %s", cacheKey)
+			}
+
+			return data, true, nil
 		}
-
-		return data, true, nil
 	}
 
 	return nil, false, nil
@@ -104,13 +112,15 @@ func (cs *CachedStorage) SetThumbnail(cacheKey string, data []byte) error {
 
 	// Memory cache first (fast, non-blocking)
 	if cs.memoryCache != nil {
-		cs.memoryCache.Set(thumbnailKey, data, cs.diskCache.TTL)
+		cs.memoryCache.Set(thumbnailKey, data, cs.ttl)
 	}
 
 	// Disk cache (slower, but persistent)
-	if err := cs.diskCache.Set(thumbnailKey, data); err != nil {
-		log.Printf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
-		return err
+	if cs.diskCache != nil {
+		if err := cs.diskCache.Set(thumbnailKey, data); err != nil {
+			log.Printf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
+			return err
+		}
 	}
 
 	log.Printf("[CachedStorage] Cached thumbnail: %s", cacheKey)
@@ -122,12 +132,18 @@ func (cs *CachedStorage) ClearCache() error {
 	if cs.memoryCache != nil {
 		cs.memoryCache.Clear()
 	}
-	return cs.diskCache.Clear()
+	if cs.diskCache != nil {
+		return cs.diskCache.Clear()
+	}
+	return nil
 }
 
 // CacheStats returns cache statistics
 func (cs *CachedStorage) CacheStats() (count int, totalSize int64, err error) {
-	return cs.diskCache.CacheStats()
+	if cs.diskCache != nil {
+		return cs.diskCache.CacheStats()
+	}
+	return 0, 0, nil
 }
 
 // GetMemoryCacheStats returns memory cache statistics if enabled

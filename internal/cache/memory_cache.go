@@ -56,8 +56,8 @@ func NewMemoryCache(cfg MemoryCacheConfig) (*MemoryCache, error) {
 		return nil, fmt.Errorf("failed to create ristretto cache: %w", err)
 	}
 
-	log.Printf("[MemoryCache] Initialized: MaxSize=%dMB, MaxItems=%d",
-		cfg.MaxSize/(1024*1024), cfg.MaxItems)
+	log.Printf("[MemoryCache] Initialized: MaxSize=%dMB, MaxItems=%d, TTL=%v",
+		cfg.MaxSize/(1024*1024), cfg.MaxItems, cfg.TTL)
 
 	return &MemoryCache{
 		cache: cache,

@@ -21,10 +21,11 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 
 	// Build log message parts
 	var logParts []string
-	logParts = append(logParts, fmt.Sprintf("driver: %s", cfg.Driver))
+	logParts = append(logParts, fmt.Sprintf("Driver=%s", cfg.Driver))
 
 	// Step 2: Check if caching is configured
 	if cfg.Cache == nil {
+		log.Printf("[Cache] No cache enabled")
 		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
 		return baseStorage, cfg.SignatureSecret, nil
 	}
@@ -34,6 +35,7 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 	memoryEnabled := cfg.Cache.Memory != nil && cfg.Cache.Memory.Enabled != nil && *cfg.Cache.Memory.Enabled
 
 	if !diskEnabled && !memoryEnabled {
+		log.Printf("[Cache] No cache enabled")
 		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
 		return baseStorage, cfg.SignatureSecret, nil
 	}
@@ -41,13 +43,17 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 	// Add cache info to log
 	var cacheInfo []string
 	if memoryEnabled && cfg.Cache.Memory.MaxSizeMB > 0 {
-		cacheInfo = append(cacheInfo, fmt.Sprintf("memory: %dMB", cfg.Cache.Memory.MaxSizeMB))
+		cacheInfo = append(cacheInfo, fmt.Sprintf("Memory:%dMB", cfg.Cache.Memory.MaxSizeMB))
 	}
 	if diskEnabled {
-		cacheInfo = append(cacheInfo, "disk")
+		if cfg.Cache.Disk.MaxSizeMB > 0 {
+			cacheInfo = append(cacheInfo, fmt.Sprintf("Disk:%dMB", cfg.Cache.Disk.MaxSizeMB))
+		} else {
+			cacheInfo = append(cacheInfo, "Disk:unlimited")
+		}
 	}
 	if len(cacheInfo) > 0 {
-		logParts = append(logParts, fmt.Sprintf("cache: %s", strings.Join(cacheInfo, ", ")))
+		logParts = append(logParts, fmt.Sprintf("Cache=[%s]", strings.Join(cacheInfo, "+")))
 	}
 
 	// Step 3: Wrap with cache layers
@@ -92,43 +98,54 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 	diskEnabled := cfg.Cache.Disk != nil && cfg.Cache.Disk.Enabled != nil && *cfg.Cache.Disk.Enabled
 	memoryEnabled := cfg.Cache.Memory != nil && cfg.Cache.Memory.Enabled != nil && *cfg.Cache.Memory.Enabled
 
+	// If neither cache is enabled, return base storage without caching
 	if !diskEnabled && !memoryEnabled {
 		return baseStorage, nil
 	}
 
-	// Disk cache is required as the base layer
-	if !diskEnabled {
-		return nil, fmt.Errorf("disk cache must be enabled when using cache")
+	// Log cache mode
+	if diskEnabled && memoryEnabled {
+		log.Printf("[Cache] Memory & Disk cache enabled")
+	} else if memoryEnabled {
+		log.Printf("[Cache] Memory-only cache enabled")
+	} else if diskEnabled {
+		log.Printf("[Cache] Disk-only cache enabled")
 	}
 
-	if cfg.Cache.Disk.Dir == "" {
-		return nil, fmt.Errorf("cache dir is required when cache is enabled")
-	}
+	cacheConfig := CachedStorageConfig{}
 
-	// Create cache directory if it doesn't exist
-	if err := os.MkdirAll(cfg.Cache.Disk.Dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create cache directory: %w", err)
-	}
+	// Determine default TTL
+	defaultTTL := 5 * time.Minute
 
-	// Build disk cache configuration
-	cacheTTL := 5 * time.Minute // default
-	if cfg.Cache.Disk.TTLSeconds > 0 {
-		cacheTTL = time.Duration(cfg.Cache.Disk.TTLSeconds) * time.Second
-	}
+	// Configure disk cache if enabled
+	if diskEnabled {
+		if cfg.Cache.Disk.Dir == "" {
+			return nil, fmt.Errorf("cache dir is required when disk cache is enabled")
+		}
 
-	clearOnStartup := false
-	if cfg.Cache.Disk.ClearOnStartup != nil {
-		clearOnStartup = *cfg.Cache.Disk.ClearOnStartup
-	}
+		// Create cache directory if it doesn't exist
+		if err := os.MkdirAll(cfg.Cache.Disk.Dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create cache directory: %w", err)
+		}
 
-	cacheConfig := CachedStorageConfig{
-		DiskCache: &DiskCacheConfig{
+		// Build disk cache configuration
+		diskTTL := defaultTTL
+		if cfg.Cache.Disk.TTLSeconds > 0 {
+			diskTTL = time.Duration(cfg.Cache.Disk.TTLSeconds) * time.Second
+		}
+
+		clearOnStartup := false
+		if cfg.Cache.Disk.ClearOnStartup != nil {
+			clearOnStartup = *cfg.Cache.Disk.ClearOnStartup
+		}
+
+		cacheConfig.DiskCache = &DiskCacheConfig{
 			Enabled:        true,
 			BasePath:       cfg.Cache.Disk.Dir,
-			TTL:            cacheTTL,
+			TTL:            diskTTL,
 			ClearOnStartup: clearOnStartup,
 			MaxSizeMB:      cfg.Cache.Disk.MaxSizeMB,
-		},
+		}
 	}
 
 	// Add memory cache configuration if enabled
@@ -137,10 +154,21 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 		if maxItems == 0 {
 			maxItems = 1000 // default
 		}
+
+		// Configure memory cache TTL
+		// Priority: memory config > disk config > default
+		memoryTTL := defaultTTL
+		if cfg.Cache.Memory.TTLSeconds > 0 {
+			memoryTTL = time.Duration(cfg.Cache.Memory.TTLSeconds) * time.Second
+		} else if diskEnabled && cfg.Cache.Disk.TTLSeconds > 0 {
+			memoryTTL = time.Duration(cfg.Cache.Disk.TTLSeconds) * time.Second
+		}
+
 		cacheConfig.MemoryCache = &MemoryCacheConfig{
 			Enabled:   true,
 			MaxSizeMB: cfg.Cache.Memory.MaxSizeMB,
 			MaxItems:  maxItems,
+			TTL:       memoryTTL,
 		}
 	}
 
@@ -150,18 +178,28 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 
 // newCachedStorage creates a wrapped storage with multi-layer caching
 func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStorage, error) {
-	// Validate configuration
-	if cfg.DiskCache == nil || !cfg.DiskCache.Enabled {
-		return nil, fmt.Errorf("disk cache configuration is required and must be enabled")
+	// Validate that at least one cache is enabled
+	if (cfg.DiskCache == nil || !cfg.DiskCache.Enabled) && (cfg.MemoryCache == nil || !cfg.MemoryCache.Enabled) {
+		return nil, fmt.Errorf("at least one cache (disk or memory) must be enabled")
 	}
 
-	if cfg.DiskCache.BasePath == "" {
-		return nil, fmt.Errorf("disk cache base path is required")
+	// Validate disk cache configuration if enabled
+	if cfg.DiskCache != nil && cfg.DiskCache.Enabled && cfg.DiskCache.BasePath == "" {
+		return nil, fmt.Errorf("disk cache base path is required when disk cache is enabled")
 	}
 
 	cs := &CachedStorage{
 		underlying: underlying,
 	}
+
+	// Determine TTL - prefer memory cache TTL, then disk cache TTL, otherwise use default
+	cacheTTL := 5 * time.Minute // default
+	if cfg.MemoryCache != nil && cfg.MemoryCache.Enabled && cfg.MemoryCache.TTL > 0 {
+		cacheTTL = cfg.MemoryCache.TTL
+	} else if cfg.DiskCache != nil && cfg.DiskCache.Enabled {
+		cacheTTL = cfg.DiskCache.TTL
+	}
+	cs.ttl = cacheTTL
 
 	// Initialize memory cache first (if enabled and configured)
 	if cfg.MemoryCache != nil && cfg.MemoryCache.Enabled && cfg.MemoryCache.MaxSizeMB > 0 {
@@ -176,33 +214,36 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 		memCache, err := cache.NewMemoryCache(cache.MemoryCacheConfig{
 			MaxSize:  memorySizeBytes,
 			MaxItems: maxItems,
-			TTL:      cfg.DiskCache.TTL,
+			TTL:      cfg.MemoryCache.TTL,
 		})
 		if err != nil {
 			log.Printf("[CachedStorage] Failed to init memory cache: %v", err)
 		} else {
 			cs.memoryCache = memCache
-			log.Printf("[CachedStorage] Enabled in-memory cache: %dMB, max items: %d", cfg.MemoryCache.MaxSizeMB, maxItems)
+			log.Printf("[CachedStorage] Enabled in-memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v", cfg.MemoryCache.MaxSizeMB, maxItems, cfg.MemoryCache.TTL)
 		}
 	}
 
-	// Initialize disk cache second
-	// Convert MB to bytes (0 = unlimited)
-	diskCacheMaxBytes := int64(0)
-	if cfg.DiskCache.MaxSizeMB > 0 {
-		diskCacheMaxBytes = int64(cfg.DiskCache.MaxSizeMB) * 1024 * 1024
+	// Initialize disk cache second (if enabled)
+	if cfg.DiskCache != nil && cfg.DiskCache.Enabled {
+		// Convert MB to bytes (0 = unlimited)
+		diskCacheMaxBytes := int64(0)
+		if cfg.DiskCache.MaxSizeMB > 0 {
+			diskCacheMaxBytes = int64(cfg.DiskCache.MaxSizeMB) * 1024 * 1024
+		}
+
+		diskCache, err := cache.NewDiskCache(
+			cfg.DiskCache.BasePath,
+			cfg.DiskCache.TTL,
+			cfg.DiskCache.ClearOnStartup,
+			diskCacheMaxBytes,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create disk cache: %w", err)
+		}
+
+		cs.diskCache = diskCache
 	}
 
-	diskCache, err := cache.NewDiskCache(
-		cfg.DiskCache.BasePath,
-		cfg.DiskCache.TTL,
-		cfg.DiskCache.ClearOnStartup,
-		diskCacheMaxBytes,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create disk cache: %w", err)
-	}
-
-	cs.diskCache = diskCache
 	return cs, nil
 }
