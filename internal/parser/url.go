@@ -15,6 +15,10 @@ type ThumbnailRequest struct {
 	Quality           int
 	Fit               string
 	FillColor         string // Color for fill mode: "black", "white", "transparent"
+	CropX1            *int   // First point X coordinate for crop
+	CropY1            *int   // First point Y coordinate for crop
+	CropX2            *int   // Second point X coordinate for crop
+	CropY2            *int   // Second point Y coordinate for crop
 	Path              string
 	ProvidedSignature string // Signature from URL
 	FilterString      string // Raw filter string for signature validation
@@ -26,6 +30,7 @@ var (
 	formatRegex  = regexp.MustCompile(`format\((\w+)\)`)
 	qualityRegex = regexp.MustCompile(`quality\((\d+)\)`)
 	fitRegex     = regexp.MustCompile(`fit\(([^)]+)\)`)
+	cropRegex    = regexp.MustCompile(`crop\((-?\d+),(-?\d+),(-?\d+),(-?\d+)\)`)
 )
 
 // ParseURL parses a URL path in the format:
@@ -33,7 +38,13 @@ var (
 // Without signature (when secretKey empty): /thumbs/{width}x{height}/[filters:{filters}/]{path}
 // Signature is HMAC-SHA256 hash that validates all parameters after it.
 // Filters are optional and must be prefixed with "filters:" if present. Multiple filters are separated by semicolons.
+// Available filters:
+//   - format(webp|jpeg|png): Output format
+//   - quality(1-100): Image quality
+//   - fit(cover|fill[,color]): Fit mode with optional fill color (black|white|transparent)
+//   - crop(x1,y1,x2,y2): Crop to rectangle from (x1,y1) to (x2,y2), applied before resize
 // Examples with signature and filters: /thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/path-in-aws.jpeg
+// Examples with crop and cover: /thumbs/200x350/filters:crop(100,100,500,500);fit(cover)/image.jpg
 // Examples with signature, no filters: /thumbs/a1b2c3d4e5f6g7h8/200x350/image.jpg
 // Examples without signature: /thumbs/200x350/image.jpg
 //
@@ -138,7 +149,9 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 		} else {
 			return nil, fmt.Errorf("missing file path after filters")
 		}
-		parseFilters(filterString, req)
+		if err := parseFilters(filterString, req); err != nil {
+			return nil, err
+		}
 	} else {
 		// No filters, everything from current index onwards is the path
 		// This handles paths with multiple directories like: one/two/file.jpeg
@@ -172,7 +185,7 @@ func ParseURL(path string, secretKey string) (*ThumbnailRequest, error) {
 }
 
 // parseFilters parses filter string with semicolon-separated filters
-func parseFilters(filterString string, req *ThumbnailRequest) {
+func parseFilters(filterString string, req *ThumbnailRequest) error {
 	filters := strings.SplitSeq(filterString, ";")
 
 	for filter := range filters {
@@ -208,7 +221,49 @@ func parseFilters(filterString string, req *ThumbnailRequest) {
 				}
 			}
 		}
+
+		// Extract crop coordinates
+		if cropMatch := cropRegex.FindStringSubmatch(filter); cropMatch != nil {
+			x1, err1 := strconv.Atoi(cropMatch[1])
+			y1, err2 := strconv.Atoi(cropMatch[2])
+			x2, err3 := strconv.Atoi(cropMatch[3])
+			y2, err4 := strconv.Atoi(cropMatch[4])
+
+			// Validate parsing
+			if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+				return fmt.Errorf("invalid crop coordinates: failed to parse numbers")
+			}
+
+			// Validate: no negative coordinates
+			if x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 {
+				return fmt.Errorf("invalid crop coordinates: negative values not allowed (got crop(%d,%d,%d,%d))", x1, y1, x2, y2)
+			}
+
+			// Validate: x2 must be greater than x1
+			if x2 <= x1 {
+				return fmt.Errorf("invalid crop coordinates: x2 must be greater than x1 (got crop(%d,%d,%d,%d))", x1, y1, x2, y2)
+			}
+
+			// Validate: y2 must be greater than y1
+			if y2 <= y1 {
+				return fmt.Errorf("invalid crop coordinates: y2 must be greater than y1 (got crop(%d,%d,%d,%d))", x1, y1, x2, y2)
+			}
+
+			// Validate: crop area must have non-zero dimensions
+			cropWidth := x2 - x1
+			cropHeight := y2 - y1
+			if cropWidth == 0 || cropHeight == 0 {
+				return fmt.Errorf("invalid crop coordinates: crop area cannot be zero-sized (got %dx%d)", cropWidth, cropHeight)
+			}
+
+			req.CropX1 = &x1
+			req.CropY1 = &y1
+			req.CropX2 = &x2
+			req.CropY2 = &y2
+		}
 	}
+
+	return nil
 }
 
 // detectFormatFromPath extracts format from file extension

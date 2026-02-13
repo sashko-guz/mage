@@ -59,8 +59,13 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sizeStr = fmt.Sprintf("%dx%d", *req.Width, *req.Height)
 	}
 
-	log.Printf("[ThumbnailHandler] Processing thumbnail: path=%s, size=%s, format=%s, quality=%d, fit=%s, fillColor=%s",
-		req.Path, sizeStr, req.Format, req.Quality, req.Fit, req.FillColor)
+	cropStr := ""
+	if req.CropX1 != nil && req.CropY1 != nil && req.CropX2 != nil && req.CropY2 != nil {
+		cropStr = fmt.Sprintf(", crop=(%d,%d,%d,%d)", *req.CropX1, *req.CropY1, *req.CropX2, *req.CropY2)
+	}
+
+	log.Printf("[ThumbnailHandler] Processing thumbnail: path=%s, size=%s, format=%s, quality=%d, fit=%s, fillColor=%s%s",
+		req.Path, sizeStr, req.Format, req.Quality, req.Fit, req.FillColor, cropStr)
 
 	// Verify signature if enabled
 	if err := h.signer.Verify(req); err != nil {
@@ -135,6 +140,10 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Quality:   req.Quality,
 			Fit:       req.Fit,
 			FillColor: req.FillColor,
+			CropX1:    req.CropX1,
+			CropY1:    req.CropY1,
+			CropX2:    req.CropX2,
+			CropY2:    req.CropY2,
 		})
 		if err != nil {
 			log.Printf("[ThumbnailHandler] Error creating thumbnail: %v", err)

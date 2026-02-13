@@ -173,6 +173,30 @@ Specifies how the image fits within the requested dimensions.
   - `fit(fill,black)` - Fill mode with black background
   - `fit(cover)` - Cover mode (crop to fill dimensions)
 
+#### crop(x1,y1,x2,y2)
+
+Crops the image to a rectangular area before any resizing or fit operations.
+
+- **Parameters:**
+  - `x1` - X coordinate of the top-left corner (must be >= 0)
+  - `y1` - Y coordinate of the top-left corner (must be >= 0)
+  - `x2` - X coordinate of the bottom-right corner (must be > x1)
+  - `y2` - Y coordinate of the bottom-right corner (must be > y1)
+
+- **Validation:**
+  - All coordinates must be non-negative
+  - x2 must be greater than x1
+  - y2 must be greater than y1
+  - Crop area must have non-zero dimensions
+  - Coordinates must be within the original image bounds
+
+- **Workflow:** Crop is applied **first**, then the fit/resize operations are applied to the cropped image
+
+- **Examples:**
+  - `crop(100,100,500,500)` - Crop to 400x400 area from (100,100) to (500,500)
+  - `crop(0,0,1920,1080);fit(cover)` - Crop to 1920x1080, then scale to cover dimensions
+  - `crop(50,50,400,400);fit(fill,white)` - Crop to 350x350, then scale and fill with white
+
 ### Example URLs
 
 **Without filters:**
@@ -183,6 +207,11 @@ Specifies how the image fits within the requested dimensions.
 **With filters (multiple filters separated by semicolons):**
 ```
 /thumbs/200x350/filters:format(webp);quality(90);fit(fill,black)/path/to/image.jpg
+```
+
+**With crop filter:**
+```
+/thumbs/300x300/filters:crop(100,100,500,500);format(webp)/path/to/image.jpg
 ```
 
 **With signature (required when `signature_secret` is configured):**
