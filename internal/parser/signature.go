@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
+
+	"github.com/sashko-guz/mage/internal/operations"
 )
 
 // Signature handles URL signature generation and verification using HMAC-SHA256
@@ -63,8 +66,10 @@ func (s *Signature) Generate(width, height *int, filterString, path string) stri
 }
 
 // Verify validates that the provided signature matches the expected signature
+// Uses the raw URL path (everything after /thumbs/) for signature validation,
+// making it resilient to future changes in URL parsing logic.
 // Returns an error with context if validation fails, nil if valid
-func (s *Signature) Verify(req *ThumbnailRequest) error {
+func (s *Signature) Verify(req *operations.Request) error {
 	if !s.IsEnabled() {
 		// Signature validation is disabled
 		if req.ProvidedSignature != "" {
@@ -78,24 +83,55 @@ func (s *Signature) Verify(req *ThumbnailRequest) error {
 		return fmt.Errorf("signature required but not provided in URL")
 	}
 
-	// Generate expected signature from request parameters
-	expectedSignature := s.Generate(
-		req.Width,
-		req.Height,
-		req.FilterString,
-		req.Path,
-	)
+	// Verify signature by hashing the raw URL path
+	// This extracts what comes after the signature itself in the URL
+	// Format: {signature}/{size}/[filters:{filters}/]{path}
+	// We hash: {size}/[filters:{filters}/]{path}
+	payloadToHash := extractSignaturePayload(req.RawURLPath, req.ProvidedSignature)
+	if payloadToHash == "" {
+		return fmt.Errorf("unable to extract payload for signature verification from URL path: %s", req.RawURLPath)
+	}
+
+	// Create HMAC-SHA256 of the raw payload
+	h := hmac.New(sha256.New, []byte(s.secretKey))
+	h.Write([]byte(payloadToHash))
+	expectedSignature := hex.EncodeToString(h.Sum(nil))[:16]
 
 	// Compare provided signature with expected
 	if req.ProvidedSignature != expectedSignature {
 		// Log expected vs provided signature for debugging
 		// Note: In production, consider logging only in debug mode to avoid exposing secrets in logs
-		log.Printf("[Signature] Expected signature: %s, Provided signature: %s", expectedSignature, req.ProvidedSignature)
-		
+		log.Printf("[Signature] Expected signature: %s, Provided signature: %s, Payload: %s", expectedSignature, req.ProvidedSignature, payloadToHash)
+
 		return fmt.Errorf("invalid signature: got %s", req.ProvidedSignature)
 	}
 
 	return nil // Signature is valid
+}
+
+// extractSignaturePayload extracts the portion of the URL path that should be hashed
+// for signature validation. Removes the signature token itself from the raw path.
+// Input format: {signature}/{size}/[filters:{filters}/]{path}
+// Output: /{size}/[filters:{filters}/]{path} (includes leading slash)
+func extractSignaturePayload(rawPath, signature string) string {
+	// rawPath is in format: signature-or-size/size/[filters]/path
+	// We need to find where the signature ends and the actual payload begins
+	// The signature is the first path segment, so we skip it and return the rest
+
+	parts := strings.SplitN(rawPath, "/", 2)
+	if len(parts) < 2 {
+		return ""
+	}
+
+	firstPart := parts[0]
+	// If first part matches the signature, skip it and return the rest with leading slash
+	if firstPart == signature {
+		return "/" + parts[1]
+	}
+
+	// If first part doesn't match signature, then there's no signature in URL
+	// and we should return the whole path with leading slash (this happens for URLs without signatures)
+	return "/" + rawPath
 }
 
 // GenerateURL creates a signed URL from request parameters
@@ -150,7 +186,7 @@ func GenerateSignature(width, height *int, filterString, path, secretKey string)
 
 // VerifySignature validates that the provided signature matches the expected signature
 // Deprecated: Use Signature.Verify instead
-func VerifySignature(req *ThumbnailRequest, secretKey string) bool {
+func VerifySignature(req *operations.Request, secretKey string) bool {
 	s := NewSignature(secretKey)
 	return s.Verify(req) == nil
 }
@@ -160,4 +196,18 @@ func VerifySignature(req *ThumbnailRequest, secretKey string) bool {
 func GenerateURL(width, height *int, filterString, path, secretKey string) string {
 	s := NewSignature(secretKey)
 	return s.GenerateURL(width, height, filterString, path)
+}
+
+// formatSizeString converts optional width/height to URL size string
+func formatSizeString(width, height *int) string {
+	if width == nil && height == nil {
+		return "x"
+	}
+	if width == nil {
+		return fmt.Sprintf("x%d", *height)
+	}
+	if height == nil {
+		return fmt.Sprintf("%dx", *width)
+	}
+	return fmt.Sprintf("%dx%d", *width, *height)
 }

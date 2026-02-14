@@ -40,52 +40,60 @@ type StorageConfig struct {
 }
 
 // MemoryCacheOptions defines configuration for in-memory cache
-// This cache stores both source images and generated thumbnails with a unified size limit
 type MemoryCacheOptions struct {
 	Enabled    *bool `json:"enabled,omitempty"`
-	MaxSizeMB  int   `json:"max_size_mb,omitempty"`  // Total memory limit for sources + thumbnails
-	MaxItems   int   `json:"max_items,omitempty"`    // Maximum number of cached items (sources + thumbnails)
-	TTLSeconds int   `json:"ttl_seconds,omitempty"` // Time-to-live for cache entries in seconds
+	MaxSizeMB  int   `json:"max_size_mb,omitempty"`
+	MaxItems   int   `json:"max_items,omitempty"`
+	TTLSeconds int   `json:"ttl_seconds,omitempty"`
 }
 
 // DiskCacheOptions defines configuration for disk-based cache
-// This cache stores both source images and generated thumbnails with a unified size limit
 type DiskCacheOptions struct {
 	Enabled        *bool  `json:"enabled,omitempty"`
 	TTLSeconds     int    `json:"ttl_seconds,omitempty"`
-	MaxSizeMB      int    `json:"max_size_mb,omitempty"` // Total disk limit for sources + thumbnails (0 = unlimited)
+	MaxSizeMB      int    `json:"max_size_mb,omitempty"`
 	Dir            string `json:"dir,omitempty"`
 	ClearOnStartup *bool  `json:"clear_on_startup,omitempty"`
 }
 
-type StorageCacheConfig struct {
+// CachePair defines separate memory and disk cache configuration for a cache layer (sources or thumbnails)
+type CachePair struct {
 	Memory *MemoryCacheOptions `json:"memory,omitempty"`
 	Disk   *DiskCacheOptions   `json:"disk,omitempty"`
 }
 
+// StorageCacheConfig defines separate cache configurations for sources and thumbnails
+type StorageCacheConfig struct {
+	Sources *CachePair `json:"sources,omitempty"` // Cache for source images from storage
+	Thumbs  *CachePair `json:"thumbs,omitempty"`  // Cache for generated thumbnails
+}
+
 // DiskCacheConfig contains configuration for disk-based cache
-// The cache stores both source images and thumbnails with a unified size limit
 type DiskCacheConfig struct {
 	Enabled        bool
 	BasePath       string
 	TTL            time.Duration
 	ClearOnStartup bool
-	MaxSizeMB      int // Maximum total cache size for sources + thumbnails in MB (0 = unlimited)
+	MaxSizeMB      int // Maximum cache size in MB (0 = unlimited)
 }
 
 // MemoryCacheConfig contains configuration for in-memory cache
-// The cache stores both source images and thumbnails with a unified size limit
 type MemoryCacheConfig struct {
 	Enabled   bool
-	MaxSizeMB int           // Maximum total memory for sources + thumbnails in megabytes
-	MaxItems  int           // Maximum number of cached items (sources + thumbnails combined)
-	TTL       time.Duration // Time-to-live for cache entries
+	MaxSizeMB int
+	MaxItems  int
+	TTL       time.Duration
 }
 
-// CachedStorageConfig contains configuration for cached storage
+// CachedStorageConfig contains separate cache configurations for sources and thumbnails
 type CachedStorageConfig struct {
-	DiskCache   *DiskCacheConfig
-	MemoryCache *MemoryCacheConfig
+	// Source image caching
+	SourceDiskCache   *DiskCacheConfig
+	SourceMemoryCache *MemoryCacheConfig
+
+	// Generated thumbnail caching
+	ThumbDiskCache   *DiskCacheConfig
+	ThumbMemoryCache *MemoryCacheConfig
 }
 
 func LoadConfig(configPath string) (*StorageConfig, error) {

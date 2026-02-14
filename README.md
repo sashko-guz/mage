@@ -197,6 +197,31 @@ Crops the image to a rectangular area before any resizing or fit operations.
   - `crop(0,0,1920,1080);fit(cover)` - Crop to 1920x1080, then scale to cover dimensions
   - `crop(50,50,400,400);fit(fill,white)` - Crop to 350x350, then scale and fill with white
 
+#### pcrop(x1,y1,x2,y2)
+
+Crops the image using percentage-based coordinates, useful for responsive designs. Similar to `crop`, but coordinates are specified as percentages (0-100) instead of pixels.
+
+- **Parameters:**
+  - `x1` - X coordinate of the top-left corner as a percentage (0-100)
+  - `y1` - Y coordinate of the top-left corner as a percentage (0-100)
+  - `x2` - X coordinate of the bottom-right corner as a percentage (0-100, must be > x1)
+  - `y2` - Y coordinate of the bottom-right corner as a percentage (0-100, must be > y1)
+
+- **Validation:**
+  - All coordinates must be between 0 and 100 (inclusive)
+  - x2 must be greater than x1
+  - y2 must be greater than y1
+  - Crop area must have non-zero dimensions
+
+- **Constraints:**
+  - Cannot be used together with `crop` filter in the same request (use either `crop` or `pcrop`, not both)
+
+- **Workflow:** Crop is applied **first**, then the fit/resize operations are applied to the cropped image
+
+- **Examples:**
+  - `pcrop(10,10,90,90)` - Crop to center 80%x80% of the image
+  - `pcrop(25,25,75,75);fit(fill,white)` - Crop to center 50%x50%, then scale and fill with white
+
 ### Example URLs
 
 **Without filters:**
@@ -212,6 +237,11 @@ Crops the image to a rectangular area before any resizing or fit operations.
 **With crop filter:**
 ```
 /thumbs/300x300/filters:crop(100,100,500,500);format(webp)/path/to/image.jpg
+```
+
+**With percentage crop filter:**
+```
+/thumbs/300x300/filters:pcrop(10,10,90,90);format(webp)/path/to/image.jpg
 ```
 
 **With signature (required when `signature_secret` is configured):**

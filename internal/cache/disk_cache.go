@@ -207,6 +207,7 @@ func (dc *DiskCache) Clear() error {
 // cleanupExpired periodically removes expired cache entries
 func (dc *DiskCache) cleanupExpired() {
 	const baseInterval = 30 * time.Second
+	const increaseInterval = 10 * time.Second
 	const maxInterval = 10 * time.Minute
 	const lowDeletionRateThreshold = 0.05 // 5% - only backoff if deletion rate is very low
 
@@ -214,7 +215,7 @@ func (dc *DiskCache) cleanupExpired() {
 	timer := time.NewTimer(interval)
 	defer timer.Stop()
 
-	log.Printf("[DiskCache] Cleanup goroutine started, next cleanup in %v", interval)
+	log.Printf("[DiskCache] Cleanup goroutine started for %s, next cleanup in %v", dc.basePath, interval)
 
 	for {
 		<-timer.C
@@ -229,7 +230,7 @@ func (dc *DiskCache) cleanupExpired() {
 		// Only increase interval if deletion rate is very low (few files expiring)
 		// High deletion rate means cache is turning over, keep cleanup frequent
 		if deletionRate < lowDeletionRateThreshold && stats.deletedCount == 0 {
-			interval += baseInterval
+			interval += increaseInterval
 			if interval > maxInterval {
 				interval = maxInterval
 			}
@@ -245,7 +246,7 @@ func (dc *DiskCache) cleanupExpired() {
 			}
 		}
 		timer.Reset(interval)
-		log.Printf("[DiskCache] Next cleanup in %v (deleted: %d/%d, rate: %.2f%%, kept: %d)", interval, stats.deletedCount, stats.totalFiles, deletionRate*100, stats.keptCount)
+		log.Printf("[DiskCache] %s - Next cleanup in %v (deleted: %d/%d, rate: %.2f%%, kept: %d)", dc.basePath, interval, stats.deletedCount, stats.totalFiles, deletionRate*100, stats.keptCount)
 	}
 }
 

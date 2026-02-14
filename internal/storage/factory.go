@@ -25,35 +25,8 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 
 	// Step 2: Check if caching is configured
 	if cfg.Cache == nil {
-		log.Printf("[Cache] No cache enabled")
 		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
 		return baseStorage, cfg.SignatureSecret, nil
-	}
-
-	// Check if any cache layer is enabled
-	diskEnabled := cfg.Cache.Disk != nil && cfg.Cache.Disk.Enabled != nil && *cfg.Cache.Disk.Enabled
-	memoryEnabled := cfg.Cache.Memory != nil && cfg.Cache.Memory.Enabled != nil && *cfg.Cache.Memory.Enabled
-
-	if !diskEnabled && !memoryEnabled {
-		log.Printf("[Cache] No cache enabled")
-		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
-		return baseStorage, cfg.SignatureSecret, nil
-	}
-
-	// Add cache info to log
-	var cacheInfo []string
-	if memoryEnabled && cfg.Cache.Memory.MaxSizeMB > 0 {
-		cacheInfo = append(cacheInfo, fmt.Sprintf("Memory:%dMB", cfg.Cache.Memory.MaxSizeMB))
-	}
-	if diskEnabled {
-		if cfg.Cache.Disk.MaxSizeMB > 0 {
-			cacheInfo = append(cacheInfo, fmt.Sprintf("Disk:%dMB", cfg.Cache.Disk.MaxSizeMB))
-		} else {
-			cacheInfo = append(cacheInfo, "Disk:unlimited")
-		}
-	}
-	if len(cacheInfo) > 0 {
-		logParts = append(logParts, fmt.Sprintf("Cache=[%s]", strings.Join(cacheInfo, "+")))
 	}
 
 	// Step 3: Wrap with cache layers
@@ -93,156 +66,253 @@ func createBaseStorage(cfg *StorageConfig) (Storage, error) {
 	}
 }
 
-// wrapWithCache wraps the base storage with cache layers (disk and/or memory)
+// wrapWithCache wraps the base storage with separate cache layers for sources and thumbnails
 func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
-	diskEnabled := cfg.Cache.Disk != nil && cfg.Cache.Disk.Enabled != nil && *cfg.Cache.Disk.Enabled
-	memoryEnabled := cfg.Cache.Memory != nil && cfg.Cache.Memory.Enabled != nil && *cfg.Cache.Memory.Enabled
-
-	// If neither cache is enabled, return base storage without caching
-	if !diskEnabled && !memoryEnabled {
+	if cfg.Cache == nil {
 		return baseStorage, nil
 	}
 
-	// Log cache mode
-	if diskEnabled && memoryEnabled {
-		log.Printf("[Cache] Memory & Disk cache enabled")
-	} else if memoryEnabled {
-		log.Printf("[Cache] Memory-only cache enabled")
-	} else if diskEnabled {
-		log.Printf("[Cache] Disk-only cache enabled")
+	sourcesEnabled := (cfg.Cache.Sources != nil && 
+		((cfg.Cache.Sources.Disk != nil && cfg.Cache.Sources.Disk.Enabled != nil && *cfg.Cache.Sources.Disk.Enabled) ||
+		 (cfg.Cache.Sources.Memory != nil && cfg.Cache.Sources.Memory.Enabled != nil && *cfg.Cache.Sources.Memory.Enabled)))
+
+	thumbsEnabled := (cfg.Cache.Thumbs != nil && 
+		((cfg.Cache.Thumbs.Disk != nil && cfg.Cache.Thumbs.Disk.Enabled != nil && *cfg.Cache.Thumbs.Disk.Enabled) ||
+		 (cfg.Cache.Thumbs.Memory != nil && cfg.Cache.Thumbs.Memory.Enabled != nil && *cfg.Cache.Thumbs.Memory.Enabled)))
+
+	if !sourcesEnabled && !thumbsEnabled {
+		log.Printf("[Cache] No cache enabled")
+		return baseStorage, nil
 	}
+
+	// Build cache info for logging
+	var cacheInfo []string
+	if sourcesEnabled {
+		cacheInfo = append(cacheInfo, "Sources")
+	}
+	if thumbsEnabled {
+		cacheInfo = append(cacheInfo, "Thumbs")
+	}
+	log.Printf("[Cache] Enabled for: %s", strings.Join(cacheInfo, ", "))
 
 	cacheConfig := CachedStorageConfig{}
-
-	// Determine default TTL
 	defaultTTL := 5 * time.Minute
 
-	// Configure disk cache if enabled
-	if diskEnabled {
-		if cfg.Cache.Disk.Dir == "" {
-			return nil, fmt.Errorf("cache dir is required when disk cache is enabled")
+	// Configure source caches
+	if sourcesEnabled {
+		sourceCfg := cfg.Cache.Sources
+		
+		// Memory cache for sources
+		if sourceCfg.Memory != nil && sourceCfg.Memory.Enabled != nil && *sourceCfg.Memory.Enabled {
+			maxItems := sourceCfg.Memory.MaxItems
+			if maxItems == 0 {
+				maxItems = 1000
+			}
+			memTTL := defaultTTL
+			if sourceCfg.Memory.TTLSeconds > 0 {
+				memTTL = time.Duration(sourceCfg.Memory.TTLSeconds) * time.Second
+			}
+			cacheConfig.SourceMemoryCache = &MemoryCacheConfig{
+				Enabled:   true,
+				MaxSizeMB: sourceCfg.Memory.MaxSizeMB,
+				MaxItems:  maxItems,
+				TTL:       memTTL,
+			}
 		}
 
-		// Create cache directory if it doesn't exist
-		if err := os.MkdirAll(cfg.Cache.Disk.Dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create cache directory: %w", err)
-		}
-
-		// Build disk cache configuration
-		diskTTL := defaultTTL
-		if cfg.Cache.Disk.TTLSeconds > 0 {
-			diskTTL = time.Duration(cfg.Cache.Disk.TTLSeconds) * time.Second
-		}
-
-		clearOnStartup := false
-		if cfg.Cache.Disk.ClearOnStartup != nil {
-			clearOnStartup = *cfg.Cache.Disk.ClearOnStartup
-		}
-
-		cacheConfig.DiskCache = &DiskCacheConfig{
-			Enabled:        true,
-			BasePath:       cfg.Cache.Disk.Dir,
-			TTL:            diskTTL,
-			ClearOnStartup: clearOnStartup,
-			MaxSizeMB:      cfg.Cache.Disk.MaxSizeMB,
-		}
-	}
-
-	// Add memory cache configuration if enabled
-	if memoryEnabled {
-		maxItems := cfg.Cache.Memory.MaxItems
-		if maxItems == 0 {
-			maxItems = 1000 // default
-		}
-
-		// Configure memory cache TTL
-		// Priority: memory config > disk config > default
-		memoryTTL := defaultTTL
-		if cfg.Cache.Memory.TTLSeconds > 0 {
-			memoryTTL = time.Duration(cfg.Cache.Memory.TTLSeconds) * time.Second
-		} else if diskEnabled && cfg.Cache.Disk.TTLSeconds > 0 {
-			memoryTTL = time.Duration(cfg.Cache.Disk.TTLSeconds) * time.Second
-		}
-
-		cacheConfig.MemoryCache = &MemoryCacheConfig{
-			Enabled:   true,
-			MaxSizeMB: cfg.Cache.Memory.MaxSizeMB,
-			MaxItems:  maxItems,
-			TTL:       memoryTTL,
+		// Disk cache for sources
+		if sourceCfg.Disk != nil && sourceCfg.Disk.Enabled != nil && *sourceCfg.Disk.Enabled {
+			if sourceCfg.Disk.Dir == "" {
+				return nil, fmt.Errorf("sources cache dir is required when disk cache is enabled")
+			}
+			if err := os.MkdirAll(sourceCfg.Disk.Dir, 0755); err != nil {
+				return nil, fmt.Errorf("failed to create sources cache directory: %w", err)
+			}
+			diskTTL := defaultTTL
+			if sourceCfg.Disk.TTLSeconds > 0 {
+				diskTTL = time.Duration(sourceCfg.Disk.TTLSeconds) * time.Second
+			}
+			clearOnStartup := false
+			if sourceCfg.Disk.ClearOnStartup != nil {
+				clearOnStartup = *sourceCfg.Disk.ClearOnStartup
+			}
+			cacheConfig.SourceDiskCache = &DiskCacheConfig{
+				Enabled:        true,
+				BasePath:       sourceCfg.Disk.Dir,
+				TTL:            diskTTL,
+				ClearOnStartup: clearOnStartup,
+				MaxSizeMB:      sourceCfg.Disk.MaxSizeMB,
+			}
 		}
 	}
 
-	// Create cached storage with both layers
+	// Configure thumbnail caches
+	if thumbsEnabled {
+		thumbsCfg := cfg.Cache.Thumbs
+		
+		// Memory cache for thumbs
+		if thumbsCfg.Memory != nil && thumbsCfg.Memory.Enabled != nil && *thumbsCfg.Memory.Enabled {
+			maxItems := thumbsCfg.Memory.MaxItems
+			if maxItems == 0 {
+				maxItems = 1000
+			}
+			memTTL := defaultTTL
+			if thumbsCfg.Memory.TTLSeconds > 0 {
+				memTTL = time.Duration(thumbsCfg.Memory.TTLSeconds) * time.Second
+			}
+			cacheConfig.ThumbMemoryCache = &MemoryCacheConfig{
+				Enabled:   true,
+				MaxSizeMB: thumbsCfg.Memory.MaxSizeMB,
+				MaxItems:  maxItems,
+				TTL:       memTTL,
+			}
+		}
+
+		// Disk cache for thumbs
+		if thumbsCfg.Disk != nil && thumbsCfg.Disk.Enabled != nil && *thumbsCfg.Disk.Enabled {
+			if thumbsCfg.Disk.Dir == "" {
+				return nil, fmt.Errorf("thumbs cache dir is required when disk cache is enabled")
+			}
+			if err := os.MkdirAll(thumbsCfg.Disk.Dir, 0755); err != nil {
+				return nil, fmt.Errorf("failed to create thumbs cache directory: %w", err)
+			}
+			diskTTL := defaultTTL
+			if thumbsCfg.Disk.TTLSeconds > 0 {
+				diskTTL = time.Duration(thumbsCfg.Disk.TTLSeconds) * time.Second
+			}
+			clearOnStartup := false
+			if thumbsCfg.Disk.ClearOnStartup != nil {
+				clearOnStartup = *thumbsCfg.Disk.ClearOnStartup
+			}
+			cacheConfig.ThumbDiskCache = &DiskCacheConfig{
+				Enabled:        true,
+				BasePath:       thumbsCfg.Disk.Dir,
+				TTL:            diskTTL,
+				ClearOnStartup: clearOnStartup,
+				MaxSizeMB:      thumbsCfg.Disk.MaxSizeMB,
+			}
+		}
+	}
+
 	return newCachedStorage(baseStorage, cacheConfig)
 }
 
-// newCachedStorage creates a wrapped storage with multi-layer caching
+// newCachedStorage creates a wrapped storage with separate caching for sources and thumbnails
 func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStorage, error) {
 	// Validate that at least one cache is enabled
-	if (cfg.DiskCache == nil || !cfg.DiskCache.Enabled) && (cfg.MemoryCache == nil || !cfg.MemoryCache.Enabled) {
-		return nil, fmt.Errorf("at least one cache (disk or memory) must be enabled")
-	}
+	sourcesCacheEnabled := (cfg.SourceMemoryCache != nil && cfg.SourceMemoryCache.Enabled) ||
+		(cfg.SourceDiskCache != nil && cfg.SourceDiskCache.Enabled)
 
-	// Validate disk cache configuration if enabled
-	if cfg.DiskCache != nil && cfg.DiskCache.Enabled && cfg.DiskCache.BasePath == "" {
-		return nil, fmt.Errorf("disk cache base path is required when disk cache is enabled")
+	thumbsCacheEnabled := (cfg.ThumbMemoryCache != nil && cfg.ThumbMemoryCache.Enabled) ||
+		(cfg.ThumbDiskCache != nil && cfg.ThumbDiskCache.Enabled)
+
+	if !sourcesCacheEnabled && !thumbsCacheEnabled {
+		return nil, fmt.Errorf("at least one cache (sources or thumbs) must be enabled")
 	}
 
 	cs := &CachedStorage{
 		underlying: underlying,
 	}
 
-	// Determine TTL - prefer memory cache TTL, then disk cache TTL, otherwise use default
-	cacheTTL := 5 * time.Minute // default
-	if cfg.MemoryCache != nil && cfg.MemoryCache.Enabled && cfg.MemoryCache.TTL > 0 {
-		cacheTTL = cfg.MemoryCache.TTL
-	} else if cfg.DiskCache != nil && cfg.DiskCache.Enabled {
-		cacheTTL = cfg.DiskCache.TTL
+	// Determine TTLs for each cache type
+	sourceTTL := 5 * time.Minute
+	if cfg.SourceMemoryCache != nil && cfg.SourceMemoryCache.TTL > 0 {
+		sourceTTL = cfg.SourceMemoryCache.TTL
+	} else if cfg.SourceDiskCache != nil && cfg.SourceDiskCache.TTL > 0 {
+		sourceTTL = cfg.SourceDiskCache.TTL
 	}
-	cs.ttl = cacheTTL
+	cs.sourceTTL = sourceTTL
 
-	// Initialize memory cache first (if enabled and configured)
-	if cfg.MemoryCache != nil && cfg.MemoryCache.Enabled && cfg.MemoryCache.MaxSizeMB > 0 {
-		memorySizeBytes := int64(cfg.MemoryCache.MaxSizeMB) * 1024 * 1024
-		maxItems := int64(cfg.MemoryCache.MaxItems)
+	thumbTTL := 5 * time.Minute
+	if cfg.ThumbMemoryCache != nil && cfg.ThumbMemoryCache.TTL > 0 {
+		thumbTTL = cfg.ThumbMemoryCache.TTL
+	} else if cfg.ThumbDiskCache != nil && cfg.ThumbDiskCache.TTL > 0 {
+		thumbTTL = cfg.ThumbDiskCache.TTL
+	}
+	cs.thumbTTL = thumbTTL
 
-		// Use reasonable default for MaxItems if not specified
-		if maxItems == 0 {
-			maxItems = int64(cfg.MemoryCache.MaxSizeMB) // Estimate: ~1MB per item
+	// Initialize source caches
+	if sourcesCacheEnabled {
+		if cfg.SourceMemoryCache != nil && cfg.SourceMemoryCache.Enabled {
+			memorySizeBytes := int64(cfg.SourceMemoryCache.MaxSizeMB) * 1024 * 1024
+			maxItems := int64(cfg.SourceMemoryCache.MaxItems)
+			if maxItems == 0 {
+				maxItems = int64(cfg.SourceMemoryCache.MaxSizeMB)
+			}
+			memCache, err := cache.NewMemoryCache(cache.MemoryCacheConfig{
+				MaxSize:  memorySizeBytes,
+				MaxItems: maxItems,
+				TTL:      cfg.SourceMemoryCache.TTL,
+			})
+			if err != nil {
+				log.Printf("[CachedStorage] Failed to init source memory cache: %v", err)
+			} else {
+				cs.sourceMemoryCache = memCache
+				log.Printf("[CachedStorage] Source memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v", 
+					cfg.SourceMemoryCache.MaxSizeMB, maxItems, cfg.SourceMemoryCache.TTL)
+			}
 		}
 
-		memCache, err := cache.NewMemoryCache(cache.MemoryCacheConfig{
-			MaxSize:  memorySizeBytes,
-			MaxItems: maxItems,
-			TTL:      cfg.MemoryCache.TTL,
-		})
-		if err != nil {
-			log.Printf("[CachedStorage] Failed to init memory cache: %v", err)
-		} else {
-			cs.memoryCache = memCache
-			log.Printf("[CachedStorage] Enabled in-memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v", cfg.MemoryCache.MaxSizeMB, maxItems, cfg.MemoryCache.TTL)
+		if cfg.SourceDiskCache != nil && cfg.SourceDiskCache.Enabled {
+			diskCacheMaxBytes := int64(0)
+			if cfg.SourceDiskCache.MaxSizeMB > 0 {
+				diskCacheMaxBytes = int64(cfg.SourceDiskCache.MaxSizeMB) * 1024 * 1024
+			}
+			diskCache, err := cache.NewDiskCache(
+				cfg.SourceDiskCache.BasePath,
+				cfg.SourceDiskCache.TTL,
+				cfg.SourceDiskCache.ClearOnStartup,
+				diskCacheMaxBytes,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create source disk cache: %w", err)
+			}
+			cs.sourceDiskCache = diskCache
+			log.Printf("[CachedStorage] Source disk cache: Dir=%s, MaxSize=%dMB, TTL=%v",
+				cfg.SourceDiskCache.BasePath, cfg.SourceDiskCache.MaxSizeMB, cfg.SourceDiskCache.TTL)
 		}
 	}
 
-	// Initialize disk cache second (if enabled)
-	if cfg.DiskCache != nil && cfg.DiskCache.Enabled {
-		// Convert MB to bytes (0 = unlimited)
-		diskCacheMaxBytes := int64(0)
-		if cfg.DiskCache.MaxSizeMB > 0 {
-			diskCacheMaxBytes = int64(cfg.DiskCache.MaxSizeMB) * 1024 * 1024
+	// Initialize thumbnail caches
+	if thumbsCacheEnabled {
+		if cfg.ThumbMemoryCache != nil && cfg.ThumbMemoryCache.Enabled {
+			memorySizeBytes := int64(cfg.ThumbMemoryCache.MaxSizeMB) * 1024 * 1024
+			maxItems := int64(cfg.ThumbMemoryCache.MaxItems)
+			if maxItems == 0 {
+				maxItems = int64(cfg.ThumbMemoryCache.MaxSizeMB)
+			}
+			memCache, err := cache.NewMemoryCache(cache.MemoryCacheConfig{
+				MaxSize:  memorySizeBytes,
+				MaxItems: maxItems,
+				TTL:      cfg.ThumbMemoryCache.TTL,
+			})
+			if err != nil {
+				log.Printf("[CachedStorage] Failed to init thumb memory cache: %v", err)
+			} else {
+				cs.thumbMemoryCache = memCache
+				log.Printf("[CachedStorage] Thumb memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v", 
+					cfg.ThumbMemoryCache.MaxSizeMB, maxItems, cfg.ThumbMemoryCache.TTL)
+			}
 		}
 
-		diskCache, err := cache.NewDiskCache(
-			cfg.DiskCache.BasePath,
-			cfg.DiskCache.TTL,
-			cfg.DiskCache.ClearOnStartup,
-			diskCacheMaxBytes,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create disk cache: %w", err)
+		if cfg.ThumbDiskCache != nil && cfg.ThumbDiskCache.Enabled {
+			diskCacheMaxBytes := int64(0)
+			if cfg.ThumbDiskCache.MaxSizeMB > 0 {
+				diskCacheMaxBytes = int64(cfg.ThumbDiskCache.MaxSizeMB) * 1024 * 1024
+			}
+			diskCache, err := cache.NewDiskCache(
+				cfg.ThumbDiskCache.BasePath,
+				cfg.ThumbDiskCache.TTL,
+				cfg.ThumbDiskCache.ClearOnStartup,
+				diskCacheMaxBytes,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create thumb disk cache: %w", err)
+			}
+			cs.thumbDiskCache = diskCache
+			log.Printf("[CachedStorage] Thumb disk cache: Dir=%s, MaxSize=%dMB, TTL=%v",
+				cfg.ThumbDiskCache.BasePath, cfg.ThumbDiskCache.MaxSizeMB, cfg.ThumbDiskCache.TTL)
 		}
-
-		cs.diskCache = diskCache
 	}
 
 	return cs, nil

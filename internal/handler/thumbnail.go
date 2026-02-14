@@ -1,14 +1,14 @@
 package handler
 
 import (
-	"compress/gzip"
-	"encoding/json"
+	"bytes"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/sashko-guz/mage/internal/operations"
 	"github.com/sashko-guz/mage/internal/parser"
 	"github.com/sashko-guz/mage/internal/processor"
 	"github.com/sashko-guz/mage/internal/storage"
@@ -16,29 +16,192 @@ import (
 )
 
 type ThumbnailResult struct {
-	Data        []byte `json:"data"`
-	ContentType string `json:"content_type"`
+	Data        []byte
+	ContentType string
 }
 
 type ThumbnailHandler struct {
-	storage      storage.Storage
-	processor    *processor.ImageProcessor
-	singleflight *singleflight.Group
-	processSem   chan struct{}
-	signer       *parser.Signature // URL signature handler
+	storage        storage.Storage
+	processor      *processor.ImageProcessor
+	singleflight   *singleflight.Group
+	processSem     chan struct{}
+	signer         *parser.Signature // URL signature handler
+	cachingEnabled bool              // true if storage supports caching
 }
 
 func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcessor, signatureKey string) (*ThumbnailHandler, error) {
+	// Check once at startup if caching is enabled
+	_, cachingEnabled := stor.(*storage.CachedStorage)
+
 	return &ThumbnailHandler{
-		storage:      stor,
-		processor:    processor,
-		singleflight: &singleflight.Group{},
-		processSem:   make(chan struct{}, 16), // limit concurrent vips work to avoid crash
-		signer:       parser.NewSignature(signatureKey),
+		storage:        stor,
+		processor:      processor,
+		singleflight:   &singleflight.Group{},
+		processSem:     make(chan struct{}, 16), // limit concurrent vips work to avoid crash
+		signer:         parser.NewSignature(signatureKey),
+		cachingEnabled: cachingEnabled,
 	}, nil
 }
 
+// encodeThumbnailBinary encodes ThumbnailResult to binary format
+// Format: [4 bytes: content-type length][content-type][image data]
+// This avoids expensive JSON marshaling/unmarshaling of large binary data
+func encodeThumbnailBinary(t *ThumbnailResult) []byte {
+	buf := bytes.NewBuffer(make([]byte, 0, len(t.Data)+len(t.ContentType)+4))
+	
+	// Write content type length (4 bytes, big-endian)
+	ctLen := uint32(len(t.ContentType))
+	buf.WriteByte(byte(ctLen >> 24))
+	buf.WriteByte(byte(ctLen >> 16))
+	buf.WriteByte(byte(ctLen >> 8))
+	buf.WriteByte(byte(ctLen))
+	
+	// Write content type
+	buf.WriteString(t.ContentType)
+	
+	// Write image data
+	buf.Write(t.Data)
+	
+	return buf.Bytes()
+}
+
+// decodeThumbnailBinary decodes binary format back to ThumbnailResult
+func decodeThumbnailBinary(data []byte) (*ThumbnailResult, error) {
+	if len(data) < 4 {
+		return nil, fmt.Errorf("invalid binary thumbnail format: too short")
+	}
+	
+	// Read content type length
+	ctLen := uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])
+	
+	if len(data) < 4+int(ctLen) {
+		return nil, fmt.Errorf("invalid binary thumbnail format: content type truncated")
+	}
+	
+	// Read content type
+	contentType := string(data[4 : 4+ctLen])
+	
+	// Read image data
+	imageData := data[4+ctLen:]
+	
+	return &ThumbnailResult{
+		Data:        imageData,
+		ContentType: contentType,
+	}, nil
+}
+
+// formatOperations formats the operations list for logging
+func formatOperations(ops []operations.Operation, filterString string) string {
+	if len(ops) == 0 {
+		return "none"
+	}
+
+	// Check if there's an explicit FitOperation in the list
+	hasFitOperation := false
+	for _, op := range ops {
+		if _, ok := op.(*operations.FitOperation); ok {
+			hasFitOperation = true
+			break
+		}
+	}
+
+	// Check if there's an explicit QualityOperation in the filters
+	hasExplicitQuality := strings.Contains(filterString, "quality(")
+
+	// Get the quality value for default display
+	var qualityValue int
+	for _, op := range ops {
+		if qualOp, ok := op.(*operations.QualityOperation); ok {
+			qualityValue = qualOp.Quality
+			break
+		}
+	}
+
+	var parts []string
+	for _, op := range ops {
+		switch v := op.(type) {
+		case *operations.ResizeOperation:
+			widthStr := "auto"
+			heightStr := "auto"
+			if v.Width != nil {
+				widthStr = strconv.Itoa(*v.Width)
+			}
+			if v.Height != nil {
+				heightStr = strconv.Itoa(*v.Height)
+			}
+			// Build resize string with fit mode if explicit, and quality if default
+			resizeStr := fmt.Sprintf("resize(%sx%s", widthStr, heightStr)
+			if !hasFitOperation {
+				resizeStr += fmt.Sprintf(", fit=%s", v.Fit)
+			}
+			if !hasExplicitQuality {
+				// Quality is default, show it inline with resize
+				resizeStr += fmt.Sprintf(", quality(%d)", qualityValue)
+			}
+			resizeStr += ")"
+			parts = append(parts, resizeStr)
+		case *operations.FormatOperation:
+			parts = append(parts, fmt.Sprintf("format(%s)", v.Format))
+		case *operations.QualityOperation:
+			// Only show quality if it was explicitly specified in filters
+			if hasExplicitQuality {
+				parts = append(parts, fmt.Sprintf("quality(%d)", v.Quality))
+			}
+		case *operations.CropOperation:
+			parts = append(parts, fmt.Sprintf("crop(%d,%d,%d,%d)", v.X1, v.Y1, v.X2, v.Y2))
+		case *operations.PercentCropOperation:
+			parts = append(parts, fmt.Sprintf("pcrop(%d,%d,%d,%d)", v.X1, v.Y1, v.X2, v.Y2))
+		case *operations.FitOperation:
+			if v.FillColor != "" && v.Mode == "fill" {
+				parts = append(parts, fmt.Sprintf("fit(%s, %s)", v.Mode, v.FillColor))
+			} else {
+				parts = append(parts, fmt.Sprintf("fit(%s)", v.Mode))
+			}
+		default:
+			parts = append(parts, op.Name())
+		}
+	}
+
+	return strings.Join(parts, " → ")
+}
+
 func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	store := h.storage
+	cacheKey := r.URL.Path
+
+	// PERFORMANCE OPTIMIZATION: Check cache FIRST before parsing (if enabled)
+	// This allows cache hits to bypass expensive URL parsing, operation parsing, and signature validation
+	if h.cachingEnabled {
+		cachedStore := store.(*storage.CachedStorage)
+		
+		// Only check thumbnail cache if it's actually enabled
+		if cachedStore.ThumbsCacheEnabled() {
+			// Check thumbnail cache first (memory → disk)
+			if cachedData, found, err := cachedStore.GetThumbnail(cacheKey); err == nil && found {
+				log.Printf("[ThumbnailHandler] Cache HIT - serving thumbnail immediately: %s", cacheKey)
+
+				// Decode cached result using binary format (no JSON overhead)
+				thumbnail, err := decodeThumbnailBinary(cachedData)
+				if err != nil {
+					log.Printf("[ThumbnailHandler] Error decoding cached thumbnail: %v", err)
+					// Continue to reprocess if cache is corrupted
+				} else {
+					// Send cached response immediately - no parsing or signature validation needed!
+					w.Header().Set("Content-Type", thumbnail.ContentType)
+					w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+					w.Header().Set("X-Cache", "HIT")
+					w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
+
+					if _, err := w.Write(thumbnail.Data); err != nil {
+						log.Printf("[ThumbnailHandler] Error writing response: %v", err)
+					}
+					return
+				}
+			}
+		}
+	}
+
+	// Parse URL and process request
 	// Parse URL path: /thumbs/[{signature}/]{size}/[filters:{filters}/]{path}
 	req, err := parser.ParseURL(r.URL.Path, "")
 	if err != nil {
@@ -47,25 +210,17 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Format size for logging
-	var sizeStr string
-	if req.Width == nil && req.Height == nil {
-		sizeStr = "original"
-	} else if req.Width == nil {
-		sizeStr = fmt.Sprintf("x%d", *req.Height)
-	} else if req.Height == nil {
-		sizeStr = fmt.Sprintf("%dx", *req.Width)
-	} else {
-		sizeStr = fmt.Sprintf("%dx%d", *req.Width, *req.Height)
+	// Log request with detailed operations
+	sigInfo := ""
+	if req.ProvidedSignature != "" {
+		sigInfo = fmt.Sprintf(", signature=%s", req.ProvidedSignature)
 	}
-
-	cropStr := ""
-	if req.CropX1 != nil && req.CropY1 != nil && req.CropX2 != nil && req.CropY2 != nil {
-		cropStr = fmt.Sprintf(", crop=(%d,%d,%d,%d)", *req.CropX1, *req.CropY1, *req.CropX2, *req.CropY2)
+	cacheMsgPrefix := ""
+	if h.cachingEnabled {
+		cacheMsgPrefix = "Cache MISS - "
 	}
-
-	log.Printf("[ThumbnailHandler] Processing thumbnail: path=%s, size=%s, format=%s, quality=%d, fit=%s, fillColor=%s%s",
-		req.Path, sizeStr, req.Format, req.Quality, req.Fit, req.FillColor, cropStr)
+	log.Printf("[ThumbnailHandler] %sProcessing thumbnail: path=%s, operations=[%s]%s, url=%s",
+		cacheMsgPrefix, req.Path, formatOperations(req.Operations, req.FilterString), sigInfo, r.URL.Path)
 
 	// Verify signature if enabled
 	if err := h.signer.Verify(req); err != nil {
@@ -74,48 +229,6 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// This prevents revealing whether a resource exists when signature is invalid
 		http.Error(w, fmt.Sprintf("Signature validation failed: %v", err), http.StatusNotFound)
 		return
-	}
-
-	store := h.storage
-
-	// Use URL path as cache key for thumbnails
-	cacheKey := r.URL.Path
-
-	// Check if storage supports caching (unified cache for sources and thumbnails)
-	cachedStore, hasCaching := store.(*storage.CachedStorage)
-	if hasCaching {
-		// Check thumbnail cache first (memory → disk → generate)
-		if cachedData, found, err := cachedStore.GetThumbnail(cacheKey); err == nil && found {
-			log.Printf("[ThumbnailHandler] Serving thumbnail from cache: %s", cacheKey)
-
-			// Unmarshal the cached result
-			var thumbnail ThumbnailResult
-			if err := json.Unmarshal(cachedData, &thumbnail); err != nil {
-				log.Printf("[ThumbnailHandler] Error unmarshaling cached thumbnail: %v", err)
-				// Continue to reprocess if cache is corrupted
-			} else {
-				// Send cached response
-				w.Header().Set("Content-Type", thumbnail.ContentType)
-				w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
-				w.Header().Set("X-Cache", "HIT")
-
-				// Check if client accepts gzip
-				if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-					w.Header().Set("Content-Encoding", "gzip")
-					gz := gzip.NewWriter(w)
-					defer gz.Close()
-					if _, err := gz.Write(thumbnail.Data); err != nil {
-						log.Printf("[ThumbnailHandler] Error writing gzip response: %v", err)
-					}
-				} else {
-					w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
-					if _, err := w.Write(thumbnail.Data); err != nil {
-						log.Printf("[ThumbnailHandler] Error writing response: %v", err)
-					}
-				}
-				return
-			}
-		}
 	}
 
 	// Use singleflight to deduplicate concurrent identical requests
@@ -133,18 +246,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Generate thumbnail
-		thumbnail, contentType, err := h.processor.CreateThumbnail(imageData, &processor.ThumbnailOptions{
-			Width:     req.Width,
-			Height:    req.Height,
-			Format:    req.Format,
-			Quality:   req.Quality,
-			Fit:       req.Fit,
-			FillColor: req.FillColor,
-			CropX1:    req.CropX1,
-			CropY1:    req.CropY1,
-			CropX2:    req.CropX2,
-			CropY2:    req.CropY2,
-		})
+		thumbnail, contentType, err := h.processor.CreateThumbnail(imageData, req)
 		if err != nil {
 			log.Printf("[ThumbnailHandler] Error creating thumbnail: %v", err)
 			return nil, err
@@ -156,18 +258,19 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}, nil
 	})
 
-	// Cache the thumbnail result if caching is enabled
-	if hasCaching && err == nil && result != nil {
-		thumbnail := result.(*ThumbnailResult)
-
-		// Marshal to JSON and store in unified cache
-		if jsonData, marshalErr := json.Marshal(thumbnail); marshalErr == nil {
-			if cacheErr := cachedStore.SetThumbnail(cacheKey, jsonData); cacheErr != nil {
+	// Cache the thumbnail result if thumbnail caching is enabled
+	if h.cachingEnabled && err == nil && result != nil {
+		cachedStore := store.(*storage.CachedStorage)
+		
+		// Only cache if thumbnails caching is actually enabled
+		if cachedStore.ThumbsCacheEnabled() {
+			thumbnail := result.(*ThumbnailResult)
+			// Encode to binary format (avoids JSON overhead)
+			binaryData := encodeThumbnailBinary(thumbnail)
+			if cacheErr := cachedStore.SetThumbnail(cacheKey, binaryData); cacheErr != nil {
 				log.Printf("[ThumbnailHandler] Error caching thumbnail result: %v", cacheErr)
 				// Don't fail if caching fails, just continue
 			}
-		} else {
-			log.Printf("[ThumbnailHandler] Error marshaling thumbnail for cache: %v", marshalErr)
 		}
 	}
 
@@ -187,20 +290,10 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", thumbnail.ContentType)
 	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
 	w.Header().Set("X-Cache", "MISS")
+	w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
 
-	// Check if client accepts gzip
-	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-		w.Header().Set("Content-Encoding", "gzip")
-		gz := gzip.NewWriter(w)
-		defer gz.Close()
-		if _, err := gz.Write(thumbnail.Data); err != nil {
-			log.Printf("[ThumbnailHandler] Error writing gzip response: %v", err)
-		}
-	} else {
-		w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
-		if _, err := w.Write(thumbnail.Data); err != nil {
-			log.Printf("[ThumbnailHandler] Error writing response: %v", err)
-		}
+	if _, err := w.Write(thumbnail.Data); err != nil {
+		log.Printf("[ThumbnailHandler] Error writing response: %v", err)
 	}
 
 	log.Printf("[ThumbnailHandler] Successfully generated thumbnail for: %s", req.Path)

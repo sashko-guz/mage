@@ -15,18 +15,35 @@
     "response_header_timeout_sec": 10
   },
   "cache": {
-    "memory": {
-      "enabled": true,
-      "ttl_seconds": 300,
-      "max_size_mb": 1024,
-      "max_items": 1000
+    "sources": {
+      "memory": {
+        "enabled": true,
+        "ttl_seconds": 300,
+        "max_size_mb": 512,
+        "max_items": 200
+      },
+      "disk": {
+        "enabled": true,
+        "ttl_seconds": 1800,
+        "max_size_mb": 5120,
+        "dir": "/var/cache/mage/sources",
+        "clear_on_startup": false
+      }
     },
-    "disk": {
-      "enabled": true,
-      "ttl_seconds": 100,
-      "max_size_mb": 10240,
-      "dir": "/var/cache/mage",
-      "clear_on_startup": false
+    "thumbs": {
+      "memory": {
+        "enabled": true,
+        "ttl_seconds": 600,
+        "max_size_mb": 1024,
+        "max_items": 1000
+      },
+      "disk": {
+        "enabled": true,
+        "ttl_seconds": 7200,
+        "max_size_mb": 10240,
+        "dir": "/var/cache/mage/thumbs",
+        "clear_on_startup": false
+      }
     }
   }
 }

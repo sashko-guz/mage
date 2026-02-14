@@ -109,13 +109,13 @@ func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) 
 func buildRoutes(thumbnailHandler *handler.ThumbnailHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-			case isThumbnailPath(r.URL.Path):
-				thumbnailHandler.ServeHTTP(w, r)
-			case r.URL.Path == "/health":
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("OK"))
-			default:
-				http.NotFound(w, r)
+		case isThumbnailPath(r.URL.Path):
+			thumbnailHandler.ServeHTTP(w, r)
+		case r.URL.Path == "/health":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		default:
+			http.NotFound(w, r)
 		}
 	})
 }
@@ -125,9 +125,13 @@ func logServerInfo(port, signatureKey string) {
 	log.Printf("[Server] Server listening on %s", addr)
 	log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
 
+	signatureStatus := "DISABLED"
 	if signatureKey != "" {
+		signatureStatus = "ENABLED (secret key set in storage config)"
+		log.Printf("[Server] Signature validation: %s", signatureStatus)
 		log.Printf("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(88)/image.jpg", addr)
 	} else {
+		log.Printf("[Server] Signature validation: %s", signatureStatus)
 		log.Printf("[Server] Example: http://localhost%s/thumbs/400x300/filters:format(webp);quality(88)/image.jpg", addr)
 	}
 }
