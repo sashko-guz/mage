@@ -106,17 +106,32 @@ Configure your storage in `storage.json`. See example files for reference:
 - `base_url` - Custom endpoint for S3-compatible storage like MinIO (optional)
 
 **Cache Settings:**
-- `cache.memory.enabled` - Enable in-memory cache (default: `false`)
-- `cache.memory.max_size_mb` - Maximum memory cache size in MB
-- `cache.memory.max_items` - Maximum number of cached items (default: 1000)
-- `cache.memory.ttl_seconds` - Cache time-to-live in seconds (optional, default: 300)
-- `cache.disk.enabled` - Enable disk cache (default: `false`)
-- `cache.disk.ttl_seconds` - Cache time-to-live in seconds (default: 300)
-- `cache.disk.max_size_mb` - Maximum disk cache size in MB (0 = unlimited)
-- `cache.disk.dir` - Cache directory path (required if disk cache enabled)
-- `cache.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
 
-**Note:** You can enable memory cache only, disk cache only, both, or neither. When both are enabled, memory cache is checked first for maximum performance.
+Mage supports separate cache configurations for **sources** (original images from storage) and **thumbs** (generated thumbnails):
+
+**Source Cache (`cache.sources`):**
+- `cache.sources.memory.enabled` - Enable in-memory cache for source images (default: `false`)
+- `cache.sources.memory.max_size_mb` - Maximum memory cache size in MB
+- `cache.sources.memory.max_items` - Maximum number of cached items
+- `cache.sources.memory.ttl_seconds` - Cache time-to-live in seconds (optional, default: 300)
+- `cache.sources.disk.enabled` - Enable disk cache for source images (default: `false`)
+- `cache.sources.disk.ttl_seconds` - Cache time-to-live in seconds (default: 300)
+- `cache.sources.disk.max_size_mb` - Maximum disk cache size in MB (0 = unlimited)
+- `cache.sources.disk.dir` - Cache directory path (required if disk cache enabled)
+- `cache.sources.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
+
+**Thumbnail Cache (`cache.thumbs`):**
+- `cache.thumbs.memory.enabled` - Enable in-memory cache for thumbnails (default: `false`)
+- `cache.thumbs.memory.max_size_mb` - Maximum memory cache size in MB
+- `cache.thumbs.memory.max_items` - Maximum number of cached items
+- `cache.thumbs.memory.ttl_seconds` - Cache time-to-live in seconds (optional, default: 300)
+- `cache.thumbs.disk.enabled` - Enable disk cache for thumbnails (default: `false`)
+- `cache.thumbs.disk.ttl_seconds` - Cache time-to-live in seconds (default: 300)
+- `cache.thumbs.disk.max_size_mb` - Maximum disk cache size in MB (0 = unlimited)
+- `cache.thumbs.disk.dir` - Cache directory path (required if disk cache enabled)
+- `cache.thumbs.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
+
+**Note:** You can configure caching independently for sources and thumbnails. Each layer (sources/thumbs) can have memory cache only, disk cache only, both, or neither. When both are enabled, memory cache is checked first for maximum performance.
 
 ## URL Filters and API
 
@@ -260,20 +275,31 @@ When `signature_secret` is configured in storage settings, all requests must inc
 
 ## Multi-Layer Caching
 
-Mage implements a flexible multi-layer caching system for maximum performance. You can use memory cache only, disk cache only, both caches together, or no caching at all.
+Mage implements a flexible multi-layer caching system with **separate configurations for sources and thumbnails**. This allows you to optimize caching strategies independently for original images and generated thumbnails.
 
 ### Cache Hierarchy
 
-When multiple cache layers are enabled, they are checked in order:
+The cache system has two independent tiers:
 
-1. **Layer 1: In-Memory Cache (Optional)** - Fastest
+1. **Source Cache (`cache.sources`)** - Caches original images from storage
+   - Used when fetching images from S3, local filesystem, etc.
+   - Reduces redundant storage reads for frequently accessed originals
+   - Especially useful when generating multiple thumbnail variants from the same source
+
+2. **Thumbnail Cache (`cache.thumbs`)** - Caches generated thumbnails
+   - Stores processed thumbnails with specific dimensions and filters
+   - Avoids re-processing images for repeated requests
+   - Typically larger than source cache due to higher request volume
+
+Each tier supports multi-layer caching with optional memory and disk layers:
+
+**Layer 1: In-Memory Cache (Optional)** - Fastest
    - Uses Ristretto LRU cache with cost-based eviction
-   - Configured via `memory.enabled`, `memory.max_size_mb`, and `memory.ttl_seconds`
    - Provides 50-200μs latency (vs 3-8ms disk I/O)
    - **Performance:** +200-500% RPS for hot images
-   - Can be used independently without disk cache
+   - Can be enabled independently per tier (sources/thumbs)
 
-2. **Layer 2: Disk-Based Cache (Optional)** - Persistent
+**Layer 2: Disk-Based Cache (Optional)** - Persistent
    - Hierarchical directory structure for scalability
    - Expiration-based eviction (TTL) + size-based eviction (LRU)
    - **Asynchronous cleanup:** Background goroutine runs periodic cleanup (~30s interval, adaptive backoff)
@@ -281,73 +307,113 @@ When multiple cache layers are enabled, they are checked in order:
      - Enforces size limit (deletes oldest files if cache exceeds `max_size_mb`)
      - Cleanup frequency adapts: backs off when idle, increases during high deletion rates
    - Survives server restarts
-   - Can be used independently without memory cache
+   - Can be enabled independently per tier (sources/thumbs)
 
-3. **Layer 3: Source Storage** - S3, local filesystem, etc.
+**Layer 3: Source Storage** - S3, local filesystem, etc.
    - Only accessed on cache miss
 
-**When both caches are enabled:** Memory cache is checked first, then disk cache, then source storage. Items found in disk cache are automatically promoted to memory cache for faster subsequent access.
+**When both caches are enabled for a tier:** Memory cache is checked first, then disk cache. Items found in disk cache are automatically promoted to memory cache for faster subsequent access.
 
 ### Configuration Examples
 
-**Both caches enabled (memory + disk):**
+**Both caches enabled for sources and thumbnails (recommended for production):**
 ```json
 {
   "driver": "local",
   "root": "/var/www/uploads",
   "signature_secret": "your-secret-key-here",
   "cache": {
-    "memory": {
-      "enabled": true,
-      "max_size_mb": 512,
-      "max_items": 1000,
-      "ttl_seconds": 300
+    "sources": {
+      "memory": {
+        "enabled": true,
+        "ttl_seconds": 300,
+        "max_size_mb": 256,
+        "max_items": 100
+      },
+      "disk": {
+        "enabled": true,
+        "ttl_seconds": 300,
+        "max_size_mb": 2048,
+        "dir": "/var/cache/mage/sources",
+        "clear_on_startup": false
+      }
     },
-    "disk": {
-      "enabled": true,
-      "ttl_seconds": 300,
-      "max_size_mb": 5120,
-      "dir": "/var/cache/mage",
-      "clear_on_startup": false
+    "thumbs": {
+      "memory": {
+        "enabled": true,
+        "ttl_seconds": 600,
+        "max_size_mb": 512,
+        "max_items": 500
+      },
+      "disk": {
+        "enabled": true,
+        "ttl_seconds": 300,
+        "max_size_mb": 10240,
+        "dir": "/var/cache/mage/thumbs",
+        "clear_on_startup": false
+      }
     }
   }
 }
 ```
 
-**Memory cache only (no persistence):**
+**Cache thumbnails only (skip source caching):**
 ```json
 {
   "driver": "local",
   "root": "/var/www/uploads",
   "cache": {
-    "memory": {
-      "enabled": true,
-      "max_size_mb": 512,
-      "max_items": 1000,
-      "ttl_seconds": 300
-    },
-    "disk": {
-      "enabled": false
+    "thumbs": {
+      "memory": {
+        "enabled": true,
+        "ttl_seconds": 600,
+        "max_size_mb": 512,
+        "max_items": 500
+      },
+      "disk": {
+        "enabled": true,
+        "ttl_seconds": 300,
+        "max_size_mb": 10240,
+        "dir": "/var/cache/mage/thumbs",
+        "clear_on_startup": false
+      }
     }
   }
 }
 ```
 
-**Disk cache only (persistent):**
+**Memory cache only for thumbnails (no persistence):**
 ```json
 {
   "driver": "local",
   "root": "/var/www/uploads",
   "cache": {
-    "memory": {
-      "enabled": false
-    },
-    "disk": {
-      "enabled": true,
-      "ttl_seconds": 300,
-      "max_size_mb": 5120,
-      "dir": "/var/cache/mage",
-      "clear_on_startup": false
+    "thumbs": {
+      "memory": {
+        "enabled": true,
+        "max_size_mb": 512,
+        "max_items": 500,
+        "ttl_seconds": 600
+      }
+    }
+  }
+}
+```
+
+**Disk cache only for thumbnails (persistent):**
+```json
+{
+  "driver": "local",
+  "root": "/var/www/uploads",
+  "cache": {
+    "thumbs": {
+      "disk": {
+        "enabled": true,
+        "ttl_seconds": 300,
+        "max_size_mb": 10240,
+        "dir": "/var/cache/mage/thumbs",
+        "clear_on_startup": false
+      }
     }
   }
 }
@@ -363,63 +429,72 @@ When multiple cache layers are enabled, they are checked in order:
 
 ### Performance Benefits
 
-With memory cache enabled:
-- **Latency:** 150ms P99 → 40-60ms P99
+With memory cache enabled for thumbnails:
+- **Latency:** 150ms P99 → 40-60ms P99 (cached thumbnail hits)
 - **Throughput:** 500 RPS → 2000+ RPS (for hot content)
-- **CPU Usage:** -20% at same RPS (less disk I/O)
-- **Best for:** Popular images that get frequent requests
+- **CPU Usage:** -20% at same RPS (less image processing and disk I/O)
+- **Best for:** Popular thumbnails that get frequent requests
+
+With source cache enabled:
+- **Reduces storage I/O:** Especially beneficial when generating multiple thumbnail variants from same source
+- **S3 cost savings:** Fewer GET requests to S3 when source is cached
+- **Best for:** High-traffic scenarios where same source generates many thumbnails
 
 ### Cache Configuration Guide
 
 **Cache Strategy Selection:**
-- **No cache:** - Simple deployments, rarely accessed images, or when using CDN
-- **Memory only:** - Development, ephemeral environments (Docker containers), hot content only
-- **Disk only:** - Persistent caching, limited RAM, server restarts common
-- **Both (recommended):** - Production, high traffic, optimal performance with persistence
 
-**In-Memory Cache (`memory.max_size_mb` and `memory.ttl_seconds`):**
-- **Size:**
-  - **256MB:** Small sites, limited hot images (~2500 cached thumbnails @ 100KB each)
-  - **512MB:** Medium traffic sites with moderate hot set
-  - **1024MB:** High traffic sites, large hot image set
-  - **2048MB+:** Very high traffic, extensive hot content
-  - `max_items` automatically defaults to approximately `max_size_mb` (assuming ~1MB average item size)
-- **TTL:**
+You can configure caching independently for **sources** and **thumbs**:
+
+- **No cache:** Simple deployments, rarely accessed images, or when using CDN
+- **Thumbnails only (recommended):** Most common - cache generated thumbnails but fetch sources directly
+- **Both sources and thumbs:** High traffic sites generating multiple variants from same sources
+- **Sources only:** Rare - useful when sources are expensive to fetch but thumbnails vary widely
+
+**Per-Tier Configuration (sources/thumbs):**
+- **Memory only:** Development, ephemeral environments (Docker containers), hot content only
+- **Disk only:** Persistent caching, limited RAM, server restarts common
+- **Both (recommended):** Production, high traffic, optimal performance with persistence
+
+**In-Memory Cache (`sources.memory` / `thumbs.memory`):**
+- **Size (`max_size_mb`):**
+  - **Sources:** 256-512MB typical (source images are larger but less frequently cached)
+  - **Thumbs:** 512-1024MB typical (thumbnails are smaller but high volume)
+  - `max_items` controls the number of items (not automatically calculated)
+- **TTL (`ttl_seconds`):**
   - **Default:** 300 seconds (5 minutes) if not specified
+  - **Sources:** 300-600s typical (originals change less frequently)
+  - **Thumbs:** 300-900s typical (generated thumbnails are stable)
   - **60-300s:** Development or frequently changing content
-  - **300-900s:** Typical production setting
   - **900s+:** Static content that rarely changes
-  - If disk cache is also enabled but memory TTL is not specified, inherits disk cache TTL
 
-**Disk Cache (`disk.ttl_seconds` and `disk.max_size_mb`):**
-- **TTL (Time-To-Live):**
+**Disk Cache (`sources.disk` / `thumbs.disk`):**
+- **TTL (`ttl_seconds`):**
   - **Default:** 300 seconds (5 minutes) if not specified
-  - **300-600s:** Typical production setting (5-10 minutes)
-  - **Shorter TTL (< 300s):** Frequently updated content
-  - **Longer TTL (> 1800s):** Static content that rarely changes
-- **Max Size (`disk.max_size_mb`):**
+  - **Sources:** 300-1800s typical
+  - **Thumbs:** 300-7200s typical (thumbnails benefit from longer TTL)
+  - **Cleanup happens asynchronously:** Background goroutine runs periodic cleanup (~30s interval)
+- **Max Size (`max_size_mb`):**
   - **0 (default):** Unlimited cache size (only limited by TTL expiration)
-  - **512MB:** Small deployments or limited disk space
-  - **1024MB (1GB):** Typical production setting
-  - **5120MB (5GB):** High-traffic sites with large image sets
-  - **10240MB+ (10GB+):** Very high traffic, extensive cache retention
-  - **Cleanup happens asynchronously:** Cache cleanup runs periodically (default: every 30 seconds). When cache size exceeds the limit, oldest files are deleted during the next cleanup cycle. **Cache may temporarily exceed size limit** during heavy write periods between cleanup runs.
+  - **Sources:** 2048-5120MB typical (2-5GB)
+  - **Thumbs:** 5120-10240MB typical (5-10GB) - higher volume
+  - **Cache may temporarily exceed size limit** during heavy write periods between cleanup runs
 
 **Optimization Tips:**
-- Caching is **disabled by default** - you must explicitly enable the cache layers you want
-- **Memory-only cache** is ideal for development and containerized deployments where persistence isn't needed
-- **Disk-only cache** works well when RAM is limited but you want persistent caching across restarts
-- **Both caches together** provide the best performance: memory for hot content, disk for persistence
-- **TTL priority:** If memory cache TTL is specified, it takes precedence over disk cache TTL for memory entries
+- Caching is **disabled by default** - you must explicitly enable what you need
+- **Most common setup:** Cache only thumbnails (skip source caching) to reduce complexity
+- **High-traffic optimization:** Cache both sources and thumbs with memory+disk layers
+- **Separate cache directories:** Use different `dir` paths for sources and thumbs (e.g., `/var/cache/mage/sources`, `/var/cache/mage/thumbs`)
+- **TTL tuning:** Thumbnails can have longer TTL since they don't change (sources may be replaced/updated)
+- **Size allocation:** Allocate more disk space to thumbs cache (higher request volume)
+- **Memory allocation:** Balance based on traffic patterns - thumbnails typically get more memory
 - **Cleanup runs asynchronously (disk cache only):** Background goroutine scans cache every ~30 seconds:
   - Deletes expired files (based on TTL)
   - Evicts oldest files if cache exceeds `max_size_mb`
   - Adapts cleanup frequency: backs off when no expired files, runs frequently during high deletion rates
-- Disk cache may **temporarily exceed** configured `max_size_mb` between cleanup cycles
-- Monitor hit ratio and adjust `max_items` and `max_size_mb` accordingly
-- Target 60-80% hit rate for in-memory cache with hot content
+- Monitor hit ratio and adjust `max_items` and `max_size_mb` per tier
 - Use `clear_on_startup: true` during development, `false` in production
-- When both caches are enabled, items found in disk cache are automatically promoted to memory cache
+- When both memory and disk caches are enabled for a tier, items found in disk cache are automatically promoted to memory cache
 
 ## S3 HTTP Client Optimization
 
