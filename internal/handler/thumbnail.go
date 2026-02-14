@@ -2,11 +2,15 @@ package handler
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/sashko-guz/mage/internal/operations"
 	"github.com/sashko-guz/mage/internal/parser"
@@ -33,36 +37,67 @@ func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcess
 	// Check once at startup if caching is enabled
 	_, cachingEnabled := stor.(*storage.CachedStorage)
 
+	// Determine optimal concurrency based on CPU cores
+	// Rule: 2x CPU cores for I/O + CPU bound work, capped at 32 to prevent memory exhaustion
+	numCPU := runtime.NumCPU()
+	maxConcurrent := min(numCPU*2, 32)
+
+	// Allow override via environment variable
+	if override := os.Getenv("VIPS_MAX_CONCURRENT"); override != "" {
+		if val, err := strconv.Atoi(override); err == nil && val > 0 {
+			maxConcurrent = val
+			log.Printf("[ThumbnailHandler] Using VIPS_MAX_CONCURRENT override: %d", maxConcurrent)
+		}
+	}
+
+	log.Printf("[ThumbnailHandler] Process concurrency: %d workers (CPU cores: %d)", maxConcurrent, numCPU)
+
 	return &ThumbnailHandler{
 		storage:        stor,
 		processor:      processor,
 		singleflight:   &singleflight.Group{},
-		processSem:     make(chan struct{}, 16), // limit concurrent vips work to avoid crash
+		processSem:     make(chan struct{}, maxConcurrent), // Dynamic based on CPU
 		signer:         parser.NewSignature(signatureKey),
 		cachingEnabled: cachingEnabled,
 	}, nil
 }
 
+// Buffer pool for reducing allocations in encodeThumbnailBinary
+// Pre-allocate 256KB buffers which covers most thumbnail sizes
+var bufferPool = sync.Pool{
+	New: func() any {
+		// Pre-allocate 256KB buffers (covers most thumbnails)
+		return bytes.NewBuffer(make([]byte, 0, 256*1024))
+	},
+}
+
 // encodeThumbnailBinary encodes ThumbnailResult to binary format
 // Format: [4 bytes: content-type length][content-type][image data]
 // This avoids expensive JSON marshaling/unmarshaling of large binary data
+// Uses buffer pooling to reduce allocations and GC pressure
 func encodeThumbnailBinary(t *ThumbnailResult) []byte {
-	buf := bytes.NewBuffer(make([]byte, 0, len(t.Data)+len(t.ContentType)+4))
-	
+	buf := bufferPool.Get().(*bytes.Buffer)
+	buf.Reset() // Clear previous data
+	defer bufferPool.Put(buf) // Return to pool
+
 	// Write content type length (4 bytes, big-endian)
 	ctLen := uint32(len(t.ContentType))
 	buf.WriteByte(byte(ctLen >> 24))
 	buf.WriteByte(byte(ctLen >> 16))
 	buf.WriteByte(byte(ctLen >> 8))
 	buf.WriteByte(byte(ctLen))
-	
+
 	// Write content type
 	buf.WriteString(t.ContentType)
-	
+
 	// Write image data
 	buf.Write(t.Data)
-	
-	return buf.Bytes()
+
+	// Copy to new slice since buffer will be reused
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+
+	return result
 }
 
 // decodeThumbnailBinary decodes binary format back to ThumbnailResult
@@ -70,24 +105,33 @@ func decodeThumbnailBinary(data []byte) (*ThumbnailResult, error) {
 	if len(data) < 4 {
 		return nil, fmt.Errorf("invalid binary thumbnail format: too short")
 	}
-	
+
 	// Read content type length
 	ctLen := uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])
-	
+
 	if len(data) < 4+int(ctLen) {
 		return nil, fmt.Errorf("invalid binary thumbnail format: content type truncated")
 	}
-	
+
 	// Read content type
 	contentType := string(data[4 : 4+ctLen])
-	
+
 	// Read image data
 	imageData := data[4+ctLen:]
-	
+
 	return &ThumbnailResult{
 		Data:        imageData,
 		ContentType: contentType,
 	}, nil
+}
+
+// generateETag creates an ETag from thumbnail data using SHA-256 hash
+// Format: "mage-{first 16 bytes of hash in hex}"
+// This provides strong cache validation while keeping the ETag relatively short
+func generateETag(data []byte) string {
+	hash := sha256.Sum256(data)
+	// Use first 16 bytes (128 bits) of hash for a good balance of uniqueness and size
+	return fmt.Sprintf(`"mage-%x"`, hash[:16])
 }
 
 // formatOperations formats the operations list for logging
@@ -173,7 +217,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// This allows cache hits to bypass expensive URL parsing, operation parsing, and signature validation
 	if h.cachingEnabled {
 		cachedStore := store.(*storage.CachedStorage)
-		
+
 		// Only check thumbnail cache if it's actually enabled
 		if cachedStore.ThumbsCacheEnabled() {
 			// Check thumbnail cache first (memory → disk)
@@ -186,9 +230,24 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					log.Printf("[ThumbnailHandler] Error decoding cached thumbnail: %v", err)
 					// Continue to reprocess if cache is corrupted
 				} else {
-					// Send cached response immediately - no parsing or signature validation needed!
+					// Generate ETag for cache validation
+					etag := generateETag(thumbnail.Data)
+
+					// Check If-None-Match header for conditional request
+					if match := r.Header.Get("If-None-Match"); match == etag {
+						// Client has the current version - return 304 Not Modified
+						w.Header().Set("ETag", etag)
+						w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+						w.Header().Set("X-Cache", "HIT")
+						w.WriteHeader(http.StatusNotModified)
+						log.Printf("[ThumbnailHandler] 304 Not Modified (ETag match): %s", cacheKey)
+						return
+					}
+
+					// Send cached response with ETag - no parsing or signature validation needed!
 					w.Header().Set("Content-Type", thumbnail.ContentType)
 					w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+					w.Header().Set("ETag", etag)
 					w.Header().Set("X-Cache", "HIT")
 					w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
 
@@ -286,9 +345,24 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ThumbnailHandler] Concurrent duplicate request served from singleflight: %s", cacheKey)
 	}
 
-	// Send response
+	// Generate ETag for newly generated thumbnail
+	etag := generateETag(thumbnail.Data)
+
+	// Check If-None-Match header (edge case: client has old cached version)
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		// Client has the current version - return 304 Not Modified
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+		w.Header().Set("X-Cache", "MISS")
+		w.WriteHeader(http.StatusNotModified)
+		log.Printf("[ThumbnailHandler] 304 Not Modified (ETag match after generation): %s", cacheKey)
+		return
+	}
+
+	// Send response with ETag
 	w.Header().Set("Content-Type", thumbnail.ContentType)
 	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+	w.Header().Set("ETag", etag)
 	w.Header().Set("X-Cache", "MISS")
 	w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
 

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cshum/vipsgen/vips"
 	"github.com/joho/godotenv"
@@ -100,10 +103,32 @@ func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) 
 
 	mux := buildRoutes(thumbnailHandler)
 
-	return &http.Server{
+	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: mux,
+
+		// Connection timeouts - prevent resource exhaustion and improve reliability
+		ReadTimeout:       5 * time.Second,   // Time to read entire request (including body)
+		ReadHeaderTimeout: 2 * time.Second,   // Time to read request headers only
+		WriteTimeout:      30 * time.Second,  // Time to write response (generous for large images)
+		IdleTimeout:       120 * time.Second, // Keep-alive timeout for idle connections
+		MaxHeaderBytes:    1 << 20,           // 1MB max header size (prevent header-based attacks)
+
+		// Connection context for tracking/metrics (can be extended later)
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			// Future: Add connection tracking, request IDs, or custom metrics here
+			return ctx
+		},
 	}
+
+	log.Printf("[Server] HTTP server configured:")
+	log.Printf("  - ReadTimeout: %v", srv.ReadTimeout)
+	log.Printf("  - ReadHeaderTimeout: %v", srv.ReadHeaderTimeout)
+	log.Printf("  - WriteTimeout: %v", srv.WriteTimeout)
+	log.Printf("  - IdleTimeout: %v", srv.IdleTimeout)
+	log.Printf("  - MaxHeaderBytes: %d bytes", srv.MaxHeaderBytes)
+
+	return srv
 }
 
 func buildRoutes(thumbnailHandler *handler.ThumbnailHandler) http.Handler {
