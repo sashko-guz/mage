@@ -539,16 +539,40 @@ Add `s3_http_config` to your S3 storage configuration in `storage.json`:
 ```
 .
 ├── cmd/
-│   └── server/          # Application entry point
+│   └── server/              # Application entry point
 ├── internal/
-│   ├── cache/           # File-based caching
-│   ├── config/          # Configuration management
-│   ├── handler/         # HTTP handlers
-│   ├── parser/          # URL and environment parsing
-│   ├── processor/       # Image processing logic
-│   └── storage/         # Storage abstractions
-├── Dockerfile           # Container image definition
-└── go.mod              # Go module dependencies
+│   ├── cache/               # Multi-layer caching (memory + disk)
+│   │   ├── disk_cache.go    # Disk-based cache with TTL and size limits
+│   │   ├── memory_cache.go  # In-memory Ristretto LRU cache
+│   │   └── errors.go        # Cache error definitions
+│   ├── config/              # Configuration management
+│   ├── handler/             # HTTP request handlers
+│   │   └── thumbnail.go     # Thumbnail generation endpoint
+│   ├── operations/          # Image operations (filters)
+│   │   ├── registry.go      # Operation registry and parser
+│   │   ├── format.go        # Format conversion (jpeg, png, webp)
+│   │   ├── quality.go       # Quality/compression settings
+│   │   ├── fit.go           # Fit modes (cover, fill)
+│   │   ├── crop.go          # Pixel-based crop
+│   │   ├── pcrop.go         # Percentage-based crop
+│   │   └── resize.go        # Resize operation
+│   ├── parser/              # URL and environment parsing
+│   │   ├── url.go           # Thumbnail URL parsing
+│   │   ├── signature.go     # HMAC signature validation
+│   │   └── env.go           # Environment variable parsing
+│   ├── processor/           # Image processing with libvips
+│   │   └── image.go         # Core image processing logic
+│   └── storage/             # Storage layer abstractions
+│       ├── storage.go       # Storage interface
+│       ├── cached.go        # Cache-aware storage wrapper
+│       ├── config.go        # Storage configuration
+│       ├── factory.go       # Storage factory
+│       └── drivers/         # Storage backend implementations
+│           ├── local.go     # Local filesystem driver
+│           └── s3.go        # S3/S3-compatible driver
+├── storage.*.json           # Storage configuration examples
+├── Dockerfile               # Container image definition
+└── go.mod                   # Go module dependencies
 ```
 
 ## Learning Outcomes
