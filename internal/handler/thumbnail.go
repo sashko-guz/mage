@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
@@ -125,15 +124,6 @@ func decodeThumbnailBinary(data []byte) (*ThumbnailResult, error) {
 	}, nil
 }
 
-// generateETag creates an ETag from thumbnail data using SHA-256 hash
-// Format: "mage-{first 16 bytes of hash in hex}"
-// This provides strong cache validation while keeping the ETag relatively short
-func generateETag(data []byte) string {
-	hash := sha256.Sum256(data)
-	// Use first 16 bytes (128 bits) of hash for a good balance of uniqueness and size
-	return fmt.Sprintf(`"mage-%x"`, hash[:16])
-}
-
 // formatOperations formats the operations list for logging
 func formatOperations(ops []operations.Operation, filterString string) string {
 	if len(ops) == 0 {
@@ -230,24 +220,9 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					log.Printf("[ThumbnailHandler] Error decoding cached thumbnail: %v", err)
 					// Continue to reprocess if cache is corrupted
 				} else {
-					// Generate ETag for cache validation
-					etag := generateETag(thumbnail.Data)
-
-					// Check If-None-Match header for conditional request
-					if match := r.Header.Get("If-None-Match"); match == etag {
-						// Client has the current version - return 304 Not Modified
-						w.Header().Set("ETag", etag)
-						w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
-						w.Header().Set("X-Cache", "HIT")
-						w.WriteHeader(http.StatusNotModified)
-						log.Printf("[ThumbnailHandler] 304 Not Modified (ETag match): %s", cacheKey)
-						return
-					}
-
-					// Send cached response with ETag - no parsing or signature validation needed!
+					// Send cached response - no parsing or signature validation needed!
 					w.Header().Set("Content-Type", thumbnail.ContentType)
 					w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
-					w.Header().Set("ETag", etag)
 					w.Header().Set("X-Cache", "HIT")
 					w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
 
@@ -345,24 +320,9 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ThumbnailHandler] Concurrent duplicate request served from singleflight: %s", cacheKey)
 	}
 
-	// Generate ETag for newly generated thumbnail
-	etag := generateETag(thumbnail.Data)
-
-	// Check If-None-Match header (edge case: client has old cached version)
-	if match := r.Header.Get("If-None-Match"); match == etag {
-		// Client has the current version - return 304 Not Modified
-		w.Header().Set("ETag", etag)
-		w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
-		w.Header().Set("X-Cache", "MISS")
-		w.WriteHeader(http.StatusNotModified)
-		log.Printf("[ThumbnailHandler] 304 Not Modified (ETag match after generation): %s", cacheKey)
-		return
-	}
-
-	// Send response with ETag
+	// Send response
 	w.Header().Set("Content-Type", thumbnail.ContentType)
 	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
-	w.Header().Set("ETag", etag)
 	w.Header().Set("X-Cache", "MISS")
 	w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
 
