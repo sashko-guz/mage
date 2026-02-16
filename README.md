@@ -91,6 +91,11 @@ docker run -p 8080:8080 -v $(pwd)/storage.json:/app/storage.json mage
 - `PORT` - Server port (default: 8080)
 - `STORAGE_CONFIG_PATH` - Path to storage configuration file (default: ./storage.json)
 - `VIPS_CONCURRENCY` - libvips concurrency level (optional)
+- `HTTP_READ_TIMEOUT_SECONDS` - Time to read entire request including body (default: 5)
+- `HTTP_READ_HEADER_TIMEOUT_SECONDS` - Time to read request headers (default: 2)
+- `HTTP_WRITE_TIMEOUT_SECONDS` - Time to write response (default: 30)
+- `HTTP_IDLE_TIMEOUT_SECONDS` - Keep-alive idle connection timeout (default: 120)
+- `HTTP_MAX_HEADER_BYTES` - Maximum total request header size in bytes (default: 1048576)
 
 ### Storage Configuration
 
