@@ -72,13 +72,13 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 		return baseStorage, nil
 	}
 
-	sourcesEnabled := (cfg.Cache.Sources != nil && 
+	sourcesEnabled := (cfg.Cache.Sources != nil &&
 		((cfg.Cache.Sources.Disk != nil && cfg.Cache.Sources.Disk.Enabled != nil && *cfg.Cache.Sources.Disk.Enabled) ||
-		 (cfg.Cache.Sources.Memory != nil && cfg.Cache.Sources.Memory.Enabled != nil && *cfg.Cache.Sources.Memory.Enabled)))
+			(cfg.Cache.Sources.Memory != nil && cfg.Cache.Sources.Memory.Enabled != nil && *cfg.Cache.Sources.Memory.Enabled)))
 
-	thumbsEnabled := (cfg.Cache.Thumbs != nil && 
+	thumbsEnabled := (cfg.Cache.Thumbs != nil &&
 		((cfg.Cache.Thumbs.Disk != nil && cfg.Cache.Thumbs.Disk.Enabled != nil && *cfg.Cache.Thumbs.Disk.Enabled) ||
-		 (cfg.Cache.Thumbs.Memory != nil && cfg.Cache.Thumbs.Memory.Enabled != nil && *cfg.Cache.Thumbs.Memory.Enabled)))
+			(cfg.Cache.Thumbs.Memory != nil && cfg.Cache.Thumbs.Memory.Enabled != nil && *cfg.Cache.Thumbs.Memory.Enabled)))
 
 	if !sourcesEnabled && !thumbsEnabled {
 		log.Printf("[Cache] No cache enabled")
@@ -101,7 +101,7 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 	// Configure source caches
 	if sourcesEnabled {
 		sourceCfg := cfg.Cache.Sources
-		
+
 		// Memory cache for sources
 		if sourceCfg.Memory != nil && sourceCfg.Memory.Enabled != nil && *sourceCfg.Memory.Enabled {
 			maxItems := sourceCfg.Memory.MaxItems
@@ -136,12 +136,17 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 			if sourceCfg.Disk.ClearOnStartup != nil {
 				clearOnStartup = *sourceCfg.Disk.ClearOnStartup
 			}
+			maxItems := sourceCfg.Disk.MaxItems
+			if maxItems <= 0 {
+				maxItems = 100_000
+			}
 			cacheConfig.SourceDiskCache = &DiskCacheConfig{
 				Enabled:        true,
 				BasePath:       sourceCfg.Disk.Dir,
 				TTL:            diskTTL,
 				ClearOnStartup: clearOnStartup,
 				MaxSizeMB:      sourceCfg.Disk.MaxSizeMB,
+				MaxItems:       maxItems,
 			}
 		}
 
@@ -170,7 +175,7 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 	// Configure thumbnail caches
 	if thumbsEnabled {
 		thumbsCfg := cfg.Cache.Thumbs
-		
+
 		// Memory cache for thumbs
 		if thumbsCfg.Memory != nil && thumbsCfg.Memory.Enabled != nil && *thumbsCfg.Memory.Enabled {
 			maxItems := thumbsCfg.Memory.MaxItems
@@ -205,12 +210,17 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 			if thumbsCfg.Disk.ClearOnStartup != nil {
 				clearOnStartup = *thumbsCfg.Disk.ClearOnStartup
 			}
+			maxItems := thumbsCfg.Disk.MaxItems
+			if maxItems <= 0 {
+				maxItems = 100_000
+			}
 			cacheConfig.ThumbDiskCache = &DiskCacheConfig{
 				Enabled:        true,
 				BasePath:       thumbsCfg.Disk.Dir,
 				TTL:            diskTTL,
 				ClearOnStartup: clearOnStartup,
 				MaxSizeMB:      thumbsCfg.Disk.MaxSizeMB,
+				MaxItems:       maxItems,
 			}
 		}
 
@@ -290,7 +300,7 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 				log.Printf("[CachedStorage] Failed to init source memory cache: %v", err)
 			} else {
 				cs.sourceMemoryCache = memCache
-				log.Printf("[CachedStorage] Source memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v", 
+				log.Printf("[CachedStorage] Source memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v",
 					cfg.SourceMemoryCache.MaxSizeMB, maxItems, cfg.SourceMemoryCache.TTL)
 			}
 		}
@@ -305,6 +315,7 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 				cfg.SourceDiskCache.TTL,
 				cfg.SourceDiskCache.ClearOnStartup,
 				diskCacheMaxBytes,
+				cfg.SourceDiskCache.MaxItems,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create source disk cache: %w", err)
@@ -332,7 +343,7 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 				log.Printf("[CachedStorage] Failed to init thumb memory cache: %v", err)
 			} else {
 				cs.thumbMemoryCache = memCache
-				log.Printf("[CachedStorage] Thumb memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v", 
+				log.Printf("[CachedStorage] Thumb memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v",
 					cfg.ThumbMemoryCache.MaxSizeMB, maxItems, cfg.ThumbMemoryCache.TTL)
 			}
 		}
@@ -347,6 +358,7 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 				cfg.ThumbDiskCache.TTL,
 				cfg.ThumbDiskCache.ClearOnStartup,
 				diskCacheMaxBytes,
+				cfg.ThumbDiskCache.MaxItems,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create thumb disk cache: %w", err)
@@ -360,13 +372,13 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 	// Initialize async write workers for sources and thumbs
 	if cfg.SourceAsyncWrite != nil && cfg.SourceAsyncWrite.Enabled && cs.sourceDiskCache != nil {
 		cs.initSourceWorkers(cfg.SourceAsyncWrite.NumWorkers, cfg.SourceAsyncWrite.QueueSize)
-		log.Printf("[CachedStorage] Source async write: %d workers, queue size %d", 
+		log.Printf("[CachedStorage] Source async write: %d workers, queue size %d",
 			cfg.SourceAsyncWrite.NumWorkers, cfg.SourceAsyncWrite.QueueSize)
 	}
 
 	if cfg.ThumbAsyncWrite != nil && cfg.ThumbAsyncWrite.Enabled && cs.thumbDiskCache != nil {
 		cs.initThumbWorkers(cfg.ThumbAsyncWrite.NumWorkers, cfg.ThumbAsyncWrite.QueueSize)
-		log.Printf("[CachedStorage] Thumb async write: %d workers, queue size %d", 
+		log.Printf("[CachedStorage] Thumb async write: %d workers, queue size %d",
 			cfg.ThumbAsyncWrite.NumWorkers, cfg.ThumbAsyncWrite.QueueSize)
 	}
 

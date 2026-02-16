@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.71.1
 	github.com/cshum/vipsgen v1.3.1
 	github.com/dgraph-io/ristretto v0.2.0
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/net v0.50.0
 	golang.org/x/sync v0.19.0

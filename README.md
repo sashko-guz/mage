@@ -126,6 +126,7 @@ Mage supports separate cache configurations for **sources** (original images fro
 - `cache.sources.disk.enabled` - Enable disk cache for source images (default: `false`)
 - `cache.sources.disk.ttl_seconds` - Cache time-to-live in seconds (default: 300)
 - `cache.sources.disk.max_size_mb` - Maximum disk cache size in MB (0 = unlimited)
+- `cache.sources.disk.max_items` - Maximum number of disk cache items tracked by LRU index
 - `cache.sources.disk.dir` - Cache directory path (required if disk cache enabled)
 - `cache.sources.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
 
@@ -137,6 +138,7 @@ Mage supports separate cache configurations for **sources** (original images fro
 - `cache.thumbs.disk.enabled` - Enable disk cache for thumbnails (default: `false`)
 - `cache.thumbs.disk.ttl_seconds` - Cache time-to-live in seconds (default: 300)
 - `cache.thumbs.disk.max_size_mb` - Maximum disk cache size in MB (0 = unlimited)
+- `cache.thumbs.disk.max_items` - Maximum number of disk cache items tracked by LRU index
 - `cache.thumbs.disk.dir` - Cache directory path (required if disk cache enabled)
 - `cache.thumbs.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
 

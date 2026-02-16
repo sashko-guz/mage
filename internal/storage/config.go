@@ -49,19 +49,20 @@ type MemoryCacheOptions struct {
 
 // DiskCacheOptions defines configuration for disk-based cache
 type DiskCacheOptions struct {
-	Enabled        *bool  `json:"enabled,omitempty"`
-	TTLSeconds     int    `json:"ttl_seconds,omitempty"`
-	MaxSizeMB      int    `json:"max_size_mb,omitempty"`
-	Dir            string `json:"dir,omitempty"`
-	ClearOnStartup *bool  `json:"clear_on_startup,omitempty"`
+	Enabled        *bool              `json:"enabled,omitempty"`
+	TTLSeconds     int                `json:"ttl_seconds,omitempty"`
+	MaxSizeMB      int                `json:"max_size_mb,omitempty"`
+	MaxItems       int                `json:"max_items,omitempty"`
+	Dir            string             `json:"dir,omitempty"`
+	ClearOnStartup *bool              `json:"clear_on_startup,omitempty"`
 	AsyncWrite     *AsyncWriteOptions `json:"async_write,omitempty"`
 }
 
 // AsyncWriteOptions defines configuration for asynchronous disk cache writes
 type AsyncWriteOptions struct {
-	Enabled      *bool `json:"enabled,omitempty"`      // Enable async writes (default: true)
-	NumWorkers   int   `json:"num_workers,omitempty"`  // Number of worker goroutines (default: 4)
-	QueueSize    int   `json:"queue_size,omitempty"`   // Channel buffer size (default: 1000)
+	Enabled    *bool `json:"enabled,omitempty"`     // Enable async writes (default: true)
+	NumWorkers int   `json:"num_workers,omitempty"` // Number of worker goroutines (default: 4)
+	QueueSize  int   `json:"queue_size,omitempty"`  // Channel buffer size (default: 1000)
 }
 
 // CachePair defines separate memory and disk cache configuration for a cache layer (sources or thumbnails)
@@ -83,6 +84,7 @@ type DiskCacheConfig struct {
 	TTL            time.Duration
 	ClearOnStartup bool
 	MaxSizeMB      int // Maximum cache size in MB (0 = unlimited)
+	MaxItems       int // Maximum number of items tracked in LRU index
 	AsyncWrite     *AsyncWriteConfig
 }
 
