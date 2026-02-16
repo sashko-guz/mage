@@ -666,7 +666,7 @@ Working on this project helped understand:
 
 ## License
 
-This is an educational project created for learning purposes.
+This project was created for LEARNING PURPOSES ONLY and do NOT RECOMMENDED to use in production (at least, now)
 
 ## Acknowledgments
 
