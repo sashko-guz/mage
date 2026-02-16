@@ -1,5 +1,7 @@
 # Mage
 
+> Note: This project was developed mostly with AI agents.
+
 Go image processing service powered by libvips.
 
 Mage generates thumbnails on-the-fly, supports local/S3 storage backends, and includes multi-layer caching for performance.
