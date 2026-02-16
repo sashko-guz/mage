@@ -148,21 +148,20 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 				MaxSizeMB:      sourceCfg.Disk.MaxSizeMB,
 				MaxItems:       maxItems,
 			}
-		}
 
-		// Async write configuration for sources
-		if sourceCfg.Disk != nil && sourceCfg.Disk.AsyncWrite != nil {
 			asyncEnabled := true // Default to enabled
-			if sourceCfg.Disk.AsyncWrite.Enabled != nil {
-				asyncEnabled = *sourceCfg.Disk.AsyncWrite.Enabled
-			}
-			numWorkers := 4 // Default workers
-			if sourceCfg.Disk.AsyncWrite.NumWorkers > 0 {
-				numWorkers = sourceCfg.Disk.AsyncWrite.NumWorkers
-			}
-			queueSize := 1000 // Default queue size
-			if sourceCfg.Disk.AsyncWrite.QueueSize > 0 {
-				queueSize = sourceCfg.Disk.AsyncWrite.QueueSize
+			numWorkers := 4      // Default workers
+			queueSize := 1000    // Default queue size
+			if sourceCfg.Disk.AsyncWrite != nil {
+				if sourceCfg.Disk.AsyncWrite.Enabled != nil {
+					asyncEnabled = *sourceCfg.Disk.AsyncWrite.Enabled
+				}
+				if sourceCfg.Disk.AsyncWrite.NumWorkers > 0 {
+					numWorkers = sourceCfg.Disk.AsyncWrite.NumWorkers
+				}
+				if sourceCfg.Disk.AsyncWrite.QueueSize > 0 {
+					queueSize = sourceCfg.Disk.AsyncWrite.QueueSize
+				}
 			}
 			cacheConfig.SourceAsyncWrite = &AsyncWriteConfig{
 				Enabled:    asyncEnabled,
@@ -222,21 +221,20 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 				MaxSizeMB:      thumbsCfg.Disk.MaxSizeMB,
 				MaxItems:       maxItems,
 			}
-		}
 
-		// Async write configuration for thumbs
-		if thumbsCfg.Disk != nil && thumbsCfg.Disk.AsyncWrite != nil {
 			asyncEnabled := true // Default to enabled
-			if thumbsCfg.Disk.AsyncWrite.Enabled != nil {
-				asyncEnabled = *thumbsCfg.Disk.AsyncWrite.Enabled
-			}
-			numWorkers := 4 // Default workers
-			if thumbsCfg.Disk.AsyncWrite.NumWorkers > 0 {
-				numWorkers = thumbsCfg.Disk.AsyncWrite.NumWorkers
-			}
-			queueSize := 1000 // Default queue size
-			if thumbsCfg.Disk.AsyncWrite.QueueSize > 0 {
-				queueSize = thumbsCfg.Disk.AsyncWrite.QueueSize
+			numWorkers := 4      // Default workers
+			queueSize := 1000    // Default queue size
+			if thumbsCfg.Disk.AsyncWrite != nil {
+				if thumbsCfg.Disk.AsyncWrite.Enabled != nil {
+					asyncEnabled = *thumbsCfg.Disk.AsyncWrite.Enabled
+				}
+				if thumbsCfg.Disk.AsyncWrite.NumWorkers > 0 {
+					numWorkers = thumbsCfg.Disk.AsyncWrite.NumWorkers
+				}
+				if thumbsCfg.Disk.AsyncWrite.QueueSize > 0 {
+					queueSize = thumbsCfg.Disk.AsyncWrite.QueueSize
+				}
 			}
 			cacheConfig.ThumbAsyncWrite = &AsyncWriteConfig{
 				Enabled:    asyncEnabled,

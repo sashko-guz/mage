@@ -101,9 +101,7 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 	}
 
 	if cs.sourceDiskCache != nil {
-		if err := cs.sourceDiskCache.Set(cacheKey, data); err != nil {
-			log.Printf("[CachedStorage] Error writing source to disk cache: %v", err)
-		}
+		cs.SetSourceAsync(cacheKey, data)
 	}
 
 	return data, nil
