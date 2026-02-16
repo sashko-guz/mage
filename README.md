@@ -1,6 +1,6 @@
 # Mage
 
-An Go project for image processing.
+Go project for image processing
 
 ## Inspiration & Thanks
 
