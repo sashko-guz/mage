@@ -39,4 +39,4 @@ go run ./cmd/server
 
 ## License
 
-Project is created for learning purposes and DO NOT RECOMMENDED to be used in production
+Project is created for learning purposes and is NOT RECOMMENDED to be used IN PRODUCTION
