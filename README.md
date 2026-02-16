@@ -1,6 +1,7 @@
 # Mage
 
 > Note: This project was developed mostly with AI agents.
+> Note: Not recommened in production
 
 Go image processing service powered by libvips.
 
