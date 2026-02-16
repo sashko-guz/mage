@@ -672,4 +672,4 @@ This project was created for LEARNING PURPOSES ONLY and do NOT RECOMMENDED to us
 
 ## Acknowledgments
 
-Built with assistance from AI coding agents to learn Go development best practices.
+Built with assistance from AI coding agents to learn Go development best practices

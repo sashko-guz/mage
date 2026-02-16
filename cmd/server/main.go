@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cshum/vipsgen/vips"
 	"github.com/joho/godotenv"
@@ -108,11 +107,11 @@ func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) 
 		Handler: mux,
 
 		// Connection timeouts - prevent resource exhaustion and improve reliability
-		ReadTimeout:       5 * time.Second,   // Time to read entire request (including body)
-		ReadHeaderTimeout: 2 * time.Second,   // Time to read request headers only
-		WriteTimeout:      30 * time.Second,  // Time to write response (generous for large images)
-		IdleTimeout:       120 * time.Second, // Keep-alive timeout for idle connections
-		MaxHeaderBytes:    1 << 20,           // 1MB max header size (prevent header-based attacks)
+		ReadTimeout:       cfg.ReadTimeout,       // Time to read entire request (including body)
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout, // Time to read request headers only
+		WriteTimeout:      cfg.WriteTimeout,      // Time to write response (generous for large images)
+		IdleTimeout:       cfg.IdleTimeout,       // Keep-alive timeout for idle connections
+		MaxHeaderBytes:    cfg.MaxHeaderBytes,    // Max header size (prevent header-based attacks)
 
 		// Connection context for tracking/metrics (can be extended later)
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
