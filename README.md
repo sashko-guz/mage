@@ -81,7 +81,7 @@ go run ./cmd/server
 Build and run with Docker:
 ```bash
 docker build -t mage .
-docker run -p 8080:8080 -v $(pwd)/storage.json:/app/storage.json mage
+docker run -p 8080:8080 -e STORAGE_CONFIG_PATH=/app/storage.json -v "$(pwd)/storage.json:/app/storage.json:ro" mage
 ```
 
 ## Configuration
