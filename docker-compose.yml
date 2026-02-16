@@ -1,0 +1,21 @@
+services:
+  mage:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mage-server
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - VIPS_WARNING=0
+      - STORAGE_CONFIG_PATH=/app/storage.docker.json
+    volumes:
+      # Mount storage configuration
+      - ./storage.docker.json:/app/storage.docker.json:ro
+      # Mount local storage data (portable relative paths)
+      - ./.data:/app/data
+      # Mount cache directories
+      - ./.cache:/app/.cache
+    working_dir: /app
+    restart: unless-stopped

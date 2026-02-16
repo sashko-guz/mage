@@ -3,10 +3,17 @@ package storage
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/sashko-guz/mage/internal/cache"
 )
+
+// cacheWriteTask represents a single cache write operation
+type cacheWriteTask struct {
+	key  string
+	data []byte
+}
 
 // CachedStorage wraps a Storage implementation with separate multi-layer caching for sources and thumbnails
 // Layer 1: In-memory LRU cache (fastest, optional) - separate for sources and thumbnails
@@ -24,6 +31,16 @@ type CachedStorage struct {
 	thumbMemoryCache *cache.MemoryCache
 	thumbDiskCache   *cache.DiskCache
 	thumbTTL         time.Duration
+
+	// Async write workers for sources
+	sourceWriteQueue chan cacheWriteTask
+	sourceWriteDone  chan struct{}
+	sourceWriteMu    sync.WaitGroup
+
+	// Async write workers for thumbnails
+	thumbWriteQueue chan cacheWriteTask
+	thumbWriteDone  chan struct{}
+	thumbWriteMu    sync.WaitGroup
 }
 
 // SourcesCacheEnabled returns true if any source cache layer is enabled
@@ -92,6 +109,67 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 	return data, nil
 }
 
+// initSourceWorkers starts worker goroutines for asynchronous source cache writes
+func (cs *CachedStorage) initSourceWorkers(numWorkers, queueSize int) {
+	if numWorkers <= 0 {
+		numWorkers = 4
+	}
+	if queueSize <= 0 {
+		queueSize = 1000
+	}
+
+	cs.sourceWriteQueue = make(chan cacheWriteTask, queueSize)
+	cs.sourceWriteDone = make(chan struct{})
+
+	for i := 0; i < numWorkers; i++ {
+		cs.sourceWriteMu.Add(1)
+		go cs.sourceWriter()
+	}
+}
+
+// sourceWriter is a worker goroutine that processes asynchronous source cache writes
+func (cs *CachedStorage) sourceWriter() {
+	defer cs.sourceWriteMu.Done()
+
+	for {
+		select {
+		case task, ok := <-cs.sourceWriteQueue:
+			if !ok {
+				return // Channel closed, exit gracefully
+			}
+			if cs.sourceDiskCache != nil {
+				if err := cs.sourceDiskCache.Set(task.key, task.data); err != nil {
+					log.Printf("[CachedStorage] Error writing source to disk cache: %v", err)
+				}
+			}
+		case <-cs.sourceWriteDone:
+			return // Shutdown signal received
+		}
+	}
+}
+
+// SetSourceAsync queues an asynchronous write of source data to disk cache
+// Returns immediately without waiting for write to complete
+// If queue is full, the write is dropped (safe - data is in memory cache anyway)
+func (cs *CachedStorage) SetSourceAsync(cacheKey string, data []byte) {
+	// Make a copy of data since it will be written asynchronously
+	dataCopy := make([]byte, len(data))
+	copy(dataCopy, data)
+
+	if cs.sourceWriteQueue == nil {
+		// Async writes not enabled, do nothing (data is in memory cache)
+		return
+	}
+
+	select {
+	case cs.sourceWriteQueue <- cacheWriteTask{key: cacheKey, data: dataCopy}:
+		// Queued successfully
+	default:
+		// Queue full - drop the write (image is in memory cache already)
+		log.Printf("[CachedStorage] Source write queue full, skipping async write for: %s", cacheKey)
+	}
+}
+
 // GetThumbnail retrieves a cached thumbnail from thumb caches
 // Returns (data, found, error) where found indicates if the thumbnail was in cache
 func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
@@ -128,7 +206,8 @@ func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-// SetThumbnail stores a thumbnail in the thumb caches
+// SetThumbnail stores a thumbnail in the thumb caches (memory only, synchronously)
+// Disk writes happen asynchronously via SetThumbnailAsync
 func (cs *CachedStorage) SetThumbnail(cacheKey string, data []byte) error {
 	// If thumbs caching is disabled, don't store anything
 	if !cs.ThumbsCacheEnabled() {
@@ -137,21 +216,75 @@ func (cs *CachedStorage) SetThumbnail(cacheKey string, data []byte) error {
 
 	thumbnailKey := "thumb:" + cacheKey
 
-	// Thumb memory cache first (fast, non-blocking)
+	// Store in memory cache synchronously (fast, blocking only on memory allocation)
 	if cs.thumbMemoryCache != nil {
 		cs.thumbMemoryCache.Set(thumbnailKey, data, cs.thumbTTL)
 	}
 
-	// Thumb disk cache (slower, but persistent)
-	if cs.thumbDiskCache != nil {
-		if err := cs.thumbDiskCache.Set(thumbnailKey, data); err != nil {
-			log.Printf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
-			return err
-		}
+	// Async disk write happens separately via SetThumbnailAsync
+	log.Printf("[CachedStorage] Cached thumbnail (memory): %s", cacheKey)
+	return nil
+}
+
+// initThumbWorkers starts worker goroutines for asynchronous thumbnail cache writes
+func (cs *CachedStorage) initThumbWorkers(numWorkers, queueSize int) {
+	if numWorkers <= 0 {
+		numWorkers = 4
+	}
+	if queueSize <= 0 {
+		queueSize = 1000
 	}
 
-	log.Printf("[CachedStorage] Cached thumbnail: %s", cacheKey)
-	return nil
+	cs.thumbWriteQueue = make(chan cacheWriteTask, queueSize)
+	cs.thumbWriteDone = make(chan struct{})
+
+	for i := 0; i < numWorkers; i++ {
+		cs.thumbWriteMu.Add(1)
+		go cs.thumbWriter()
+	}
+}
+
+// thumbWriter is a worker goroutine that processes asynchronous thumbnail cache writes
+func (cs *CachedStorage) thumbWriter() {
+	defer cs.thumbWriteMu.Done()
+
+	for {
+		select {
+		case task, ok := <-cs.thumbWriteQueue:
+			if !ok {
+				return // Channel closed, exit gracefully
+			}
+			if cs.thumbDiskCache != nil {
+				if err := cs.thumbDiskCache.Set(task.key, task.data); err != nil {
+					log.Printf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
+				}
+			}
+		case <-cs.thumbWriteDone:
+			return // Shutdown signal received
+		}
+	}
+}
+
+// SetThumbnailAsync queues an asynchronous write of thumbnail data to disk cache
+// Returns immediately without waiting for write to complete
+// If queue is full, the write is dropped (safe - data is in memory cache anyway)
+func (cs *CachedStorage) SetThumbnailAsync(cacheKey string, data []byte) {
+	// Make a copy of data since it will be written asynchronously
+	dataCopy := make([]byte, len(data))
+	copy(dataCopy, data)
+
+	if cs.thumbWriteQueue == nil {
+		// Async writes not enabled, do nothing (data is in memory cache)
+		return
+	}
+
+	select {
+	case cs.thumbWriteQueue <- cacheWriteTask{key: "thumb:" + cacheKey, data: dataCopy}:
+		// Queued successfully
+	default:
+		// Queue full - drop the write (thumbnail is in memory cache already)
+		log.Printf("[CachedStorage] Thumb write queue full, skipping async write for: %s", cacheKey)
+	}
 }
 
 // ClearCache clears all cached entries (useful for testing or manual invalidation)
@@ -177,8 +310,21 @@ func (cs *CachedStorage) ClearCache() error {
 	return nil
 }
 
-// Close releases cache resources
+// Close releases cache resources and shuts down async workers
 func (cs *CachedStorage) Close() error {
+	// Shutdown source workers gracefully
+	if cs.sourceWriteQueue != nil {
+		close(cs.sourceWriteQueue)
+		cs.sourceWriteMu.Wait() // Wait for all workers to finish draining queue
+	}
+
+	// Shutdown thumb workers gracefully
+	if cs.thumbWriteQueue != nil {
+		close(cs.thumbWriteQueue)
+		cs.thumbWriteMu.Wait() // Wait for all workers to finish draining queue
+	}
+
+	// Close memory caches
 	if cs.sourceMemoryCache != nil {
 		cs.sourceMemoryCache.Wait()
 		cs.sourceMemoryCache.Close()

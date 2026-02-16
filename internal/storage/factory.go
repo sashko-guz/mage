@@ -144,6 +144,27 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 				MaxSizeMB:      sourceCfg.Disk.MaxSizeMB,
 			}
 		}
+
+		// Async write configuration for sources
+		if sourceCfg.Disk != nil && sourceCfg.Disk.AsyncWrite != nil {
+			asyncEnabled := true // Default to enabled
+			if sourceCfg.Disk.AsyncWrite.Enabled != nil {
+				asyncEnabled = *sourceCfg.Disk.AsyncWrite.Enabled
+			}
+			numWorkers := 4 // Default workers
+			if sourceCfg.Disk.AsyncWrite.NumWorkers > 0 {
+				numWorkers = sourceCfg.Disk.AsyncWrite.NumWorkers
+			}
+			queueSize := 1000 // Default queue size
+			if sourceCfg.Disk.AsyncWrite.QueueSize > 0 {
+				queueSize = sourceCfg.Disk.AsyncWrite.QueueSize
+			}
+			cacheConfig.SourceAsyncWrite = &AsyncWriteConfig{
+				Enabled:    asyncEnabled,
+				NumWorkers: numWorkers,
+				QueueSize:  queueSize,
+			}
+		}
 	}
 
 	// Configure thumbnail caches
@@ -190,6 +211,27 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 				TTL:            diskTTL,
 				ClearOnStartup: clearOnStartup,
 				MaxSizeMB:      thumbsCfg.Disk.MaxSizeMB,
+			}
+		}
+
+		// Async write configuration for thumbs
+		if thumbsCfg.Disk != nil && thumbsCfg.Disk.AsyncWrite != nil {
+			asyncEnabled := true // Default to enabled
+			if thumbsCfg.Disk.AsyncWrite.Enabled != nil {
+				asyncEnabled = *thumbsCfg.Disk.AsyncWrite.Enabled
+			}
+			numWorkers := 4 // Default workers
+			if thumbsCfg.Disk.AsyncWrite.NumWorkers > 0 {
+				numWorkers = thumbsCfg.Disk.AsyncWrite.NumWorkers
+			}
+			queueSize := 1000 // Default queue size
+			if thumbsCfg.Disk.AsyncWrite.QueueSize > 0 {
+				queueSize = thumbsCfg.Disk.AsyncWrite.QueueSize
+			}
+			cacheConfig.ThumbAsyncWrite = &AsyncWriteConfig{
+				Enabled:    asyncEnabled,
+				NumWorkers: numWorkers,
+				QueueSize:  queueSize,
 			}
 		}
 	}
@@ -313,6 +355,19 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 			log.Printf("[CachedStorage] Thumb disk cache: Dir=%s, MaxSize=%dMB, TTL=%v",
 				cfg.ThumbDiskCache.BasePath, cfg.ThumbDiskCache.MaxSizeMB, cfg.ThumbDiskCache.TTL)
 		}
+	}
+
+	// Initialize async write workers for sources and thumbs
+	if cfg.SourceAsyncWrite != nil && cfg.SourceAsyncWrite.Enabled && cs.sourceDiskCache != nil {
+		cs.initSourceWorkers(cfg.SourceAsyncWrite.NumWorkers, cfg.SourceAsyncWrite.QueueSize)
+		log.Printf("[CachedStorage] Source async write: %d workers, queue size %d", 
+			cfg.SourceAsyncWrite.NumWorkers, cfg.SourceAsyncWrite.QueueSize)
+	}
+
+	if cfg.ThumbAsyncWrite != nil && cfg.ThumbAsyncWrite.Enabled && cs.thumbDiskCache != nil {
+		cs.initThumbWorkers(cfg.ThumbAsyncWrite.NumWorkers, cfg.ThumbAsyncWrite.QueueSize)
+		log.Printf("[CachedStorage] Thumb async write: %d workers, queue size %d", 
+			cfg.ThumbAsyncWrite.NumWorkers, cfg.ThumbAsyncWrite.QueueSize)
 	}
 
 	return cs, nil

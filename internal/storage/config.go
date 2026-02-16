@@ -54,6 +54,14 @@ type DiskCacheOptions struct {
 	MaxSizeMB      int    `json:"max_size_mb,omitempty"`
 	Dir            string `json:"dir,omitempty"`
 	ClearOnStartup *bool  `json:"clear_on_startup,omitempty"`
+	AsyncWrite     *AsyncWriteOptions `json:"async_write,omitempty"`
+}
+
+// AsyncWriteOptions defines configuration for asynchronous disk cache writes
+type AsyncWriteOptions struct {
+	Enabled      *bool `json:"enabled,omitempty"`      // Enable async writes (default: true)
+	NumWorkers   int   `json:"num_workers,omitempty"`  // Number of worker goroutines (default: 4)
+	QueueSize    int   `json:"queue_size,omitempty"`   // Channel buffer size (default: 1000)
 }
 
 // CachePair defines separate memory and disk cache configuration for a cache layer (sources or thumbnails)
@@ -75,6 +83,14 @@ type DiskCacheConfig struct {
 	TTL            time.Duration
 	ClearOnStartup bool
 	MaxSizeMB      int // Maximum cache size in MB (0 = unlimited)
+	AsyncWrite     *AsyncWriteConfig
+}
+
+// AsyncWriteConfig contains configuration for asynchronous disk cache writes
+type AsyncWriteConfig struct {
+	Enabled    bool // Enable async writes
+	NumWorkers int  // Number of worker goroutines
+	QueueSize  int  // Channel buffer size
 }
 
 // MemoryCacheConfig contains configuration for in-memory cache
@@ -94,6 +110,10 @@ type CachedStorageConfig struct {
 	// Generated thumbnail caching
 	ThumbDiskCache   *DiskCacheConfig
 	ThumbMemoryCache *MemoryCacheConfig
+
+	// Async write configurations
+	SourceAsyncWrite *AsyncWriteConfig
+	ThumbAsyncWrite  *AsyncWriteConfig
 }
 
 func LoadConfig(configPath string) (*StorageConfig, error) {

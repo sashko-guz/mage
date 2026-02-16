@@ -1,48 +1,90 @@
-FROM golang:1.26-alpine AS builder
+ARG GOLANG_VERSION=1.26.0
+FROM golang:${GOLANG_VERSION}-trixie AS builder
 
-# Install build dependencies
-RUN apk add --no-cache \
-    gcc \
-    musl-dev \
-    vips-dev~=8.18
+ARG VIPS_VERSION=8.18.0
+ARG TARGETARCH
 
-WORKDIR /app
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
-# Copy go mod files first for better layer caching
-COPY go.mod go.sum ./
+# Installs libvips + required libraries
+RUN DEBIAN_FRONTEND=noninteractive \
+  apt-get update && \
+  apt-get install --no-install-recommends -y \
+  ca-certificates \
+  automake build-essential curl \
+  meson ninja-build pkg-config \
+  gobject-introspection gtk-doc-tools libglib2.0-dev libpng-dev \
+  libwebp-dev libtiff-dev libexif-dev libxml2-dev libpoppler-glib-dev \
+  swig libpango1.0-dev libmatio-dev libopenslide-dev libcfitsio-dev libopenjp2-7-dev liblcms2-dev \
+  libgsf-1-dev libfftw3-dev liborc-0.4-dev librsvg2-dev libimagequant-dev libaom-dev \
+  libspng-dev libcgif-dev libheif-dev libheif-plugin-x265 libheif-plugin-aomenc libjxl-dev libavif-dev libraw-dev libjpeg62-turbo-dev && \
+  cd /tmp && \
+    curl -fsSLO https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/vips-${VIPS_VERSION}.tar.xz && \
+    tar xf vips-${VIPS_VERSION}.tar.xz && \
+    cd vips-${VIPS_VERSION} && \
+    meson setup _build \
+    --buildtype=release \
+    --strip \
+    --prefix=/usr/local \
+    --libdir=lib \
+    -Dmagick=disabled \
+    -Djpeg-xl=enabled \
+    -Dintrospection=disabled && \
+    ninja -C _build && \
+    ninja -C _build install && \
+  ldconfig && \
+  rm -rf /usr/local/lib/libvips-cpp.* && \
+  rm -rf /usr/local/lib/*.a && \
+  rm -rf /usr/local/lib/*.la
+
+WORKDIR ${GOPATH}/src/github.com/sashko-guz/mage
+
+COPY go.mod .
+COPY go.sum .
+
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build the application with optimizations
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-w -s" -o mage ./cmd/server
+RUN go build -o ${GOPATH}/bin/mage ./cmd/server
 
-FROM alpine:3.19
+FROM debian:trixie-slim AS runtime
 
-# Install runtime dependencies and create non-root user
-RUN apk add --no-cache vips~=8.18 ca-certificates && \
-    addgroup -g 1000 appuser && \
-    adduser -D -u 1000 -G appuser appuser
+LABEL maintainer="sashko-guz"
 
-WORKDIR /app
+COPY --from=builder /usr/local/lib /usr/local/lib
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
-# Copy binary from builder
-COPY --from=builder /app/mage .
+# Install runtime dependencies
+RUN DEBIAN_FRONTEND=noninteractive \
+  apt-get update && \
+  apt-get install --no-install-recommends -y \
+  procps curl libglib2.0-0 libpng16-16 libopenexr-3-1-30 \
+  libwebp7 libwebpmux3 libwebpdemux2 libtiff6 libexif12 libxml2 libpoppler-glib8t64 \
+  libpango-1.0-0 libmatio13 libopenslide0 libopenjp2-7 libjemalloc2 \
+  libgsf-1-114 libfftw3-bin liborc-0.4-0 librsvg2-2 libcfitsio10t64 libimagequant0 libaom3 \
+  libspng0 libcgif0 libheif1 libheif-plugin-x265 libheif-plugin-aomenc libjxl0.11 libraw23t64 libjpeg62-turbo && \
+  ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
+  apt-get autoremove -y && \
+  apt-get autoclean && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Change ownership to non-root user
-RUN chown -R appuser:appuser /app
+COPY --from=builder /go/bin/mage /usr/local/bin/mage
 
-# Switch to non-root user
-USER appuser
+# Create necessary directories and set proper permissions for nobody user
+RUN mkdir -p /app /app/data /app/.cache/sources /app/.cache/thumbs && \
+    chmod -R 777 /app
 
-# Expose port
-EXPOSE 8080
+ENV VIPS_WARNING=0
+ENV MALLOC_ARENA_MAX=2
+ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["./mage", "--health"] || exit 1
+ENV PORT=8080
 
-# Run the application
-CMD ["./mage"]
+# use unprivileged user
+USER nobody
+
+ENTRYPOINT ["/usr/local/bin/mage"]
+
+EXPOSE ${PORT}

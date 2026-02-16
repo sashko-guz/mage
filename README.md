@@ -1,10 +1,19 @@
 # Mage
 
-An educational Go project for learning modern web development and image processing.
+An Go project for image processing.
+
+## Inspiration & Thanks
+
+This project was greatly inspired by and built upon the excellent work of:
+
+- **[cshum/vipsgen](https://github.com/cshum/vipsgen)** - Go bindings for libvips that power the image processing core
+- **[cshum/imagor](https://github.com/cshum/imagor)** - A high-performance image processing service that served as the architectural and Dockerfile reference for this project
+
+Special thanks to Adrian Shum ([@cshum](https://github.com/cshum)) for creating these amazing open-source tools that made this project possible.
 
 ## About
 
-This is a learning project created to explore:
+This is a project created to explore:
 - Go programming language and its ecosystem
 - Image processing with libvips
 - HTTP server development
@@ -130,6 +139,30 @@ Mage supports separate cache configurations for **sources** (original images fro
 - `cache.thumbs.disk.max_size_mb` - Maximum disk cache size in MB (0 = unlimited)
 - `cache.thumbs.disk.dir` - Cache directory path (required if disk cache enabled)
 - `cache.thumbs.disk.clear_on_startup` - Clear cache on server startup (default: `false`)
+
+**Asynchronous Disk Cache Writes:**
+
+Both sources and thumbs disk caches support asynchronous writes using worker pools. This allows disk cache writes to happen in the background without blocking user responses:
+
+- `cache.sources.disk.async_write.enabled` - Enable async writes for source disk cache (default: `true`)
+- `cache.sources.disk.async_write.num_workers` - Number of worker goroutines for source writes (default: 4)
+- `cache.sources.disk.async_write.queue_size` - Channel buffer size for source write queue (default: 1000)
+
+- `cache.thumbs.disk.async_write.enabled` - Enable async writes for thumbnail disk cache (default: `true`)
+- `cache.thumbs.disk.async_write.num_workers` - Number of worker goroutines for thumbnail writes (default: 4)
+- `cache.thumbs.disk.async_write.queue_size` - Channel buffer size for thumbnail write queue (default: 1000)
+
+**How Async Writes Work:**
+- Memory cache writes happen **synchronously** (fast, immediate)
+- Disk cache writes happen **asynchronously** in background workers
+- User receives response immediately without waiting for disk I/O
+- If write queue is full, the write is safely dropped (data remains in memory cache)
+- Workers gracefully drain remaining tasks on server shutdown
+
+**Tuning Guidance:**
+- `num_workers`: 2-4 for low traffic, 4-8 for high traffic
+- `queue_size`: 500-1000 for typical workloads, increase for bursty traffic
+- Set `enabled: false` to disable async writes and fall back to synchronous disk writes
 
 **Note:** You can configure caching independently for sources and thumbnails. Each layer (sources/thumbs) can have memory cache only, disk cache only, both, or neither. When both are enabled, memory cache is checked first for maximum performance.
 
@@ -266,12 +299,43 @@ Crops the image using percentage-based coordinates, useful for responsive design
 
 ### Signature Generation
 
-When `signature_secret` is configured in storage settings, all requests must include a valid HMAC-SHA256 signature. The signature is calculated over all parameters after it in the URL.
+When `signature_secret` is configured in storage settings, all requests must include a valid HMAC-SHA256 signature. The signature is calculated as HMAC-SHA256 over the raw URL path (first 16 hex characters of the hash).
 
-**Signature components (in order):**
-1. Size (e.g., `200x350`)
-2. Filter string if present (e.g., `format(webp);quality(88)`)
-3. File path (e.g., `path/to/image.jpg`)
+**Signature payload format (raw URL path):**
+```
+/{size}/[filters:{filters}/]{path}
+```
+
+Where:
+- `{size}` - Image dimensions as `WIDTHxHEIGHT` (e.g., `200x350`, `x350` for height-only, `200x` for width-only, `x` for ratio-preserving)
+- `{filters}` - (Optional) Filter string (e.g., `format(webp);quality(88)`)
+- `{path}` - File path in storage (e.g., `path/to/image.jpg`)
+
+**Example signature calculation:**
+```
+Secret: "your-secret-key"
+Size: 200x350
+Filters: format(webp);quality(88)
+Path: path/to/image.jpg
+
+Payload to hash: /200x350/filters:format(webp);quality(88)/path/to/image.jpg
+Signature: HMAC-SHA256(secret, payload)[:16] = "a1b2c3d4e5f6g7h8"
+```
+
+**URL format with signature:**
+```
+/thumbs/{signature}/{size}/[filters:{filters}/]{path}
+```
+
+**Example with filters:**
+```
+/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/path/to/image.jpg
+```
+
+**Example without filters:**
+```
+/thumbs/a1b2c3d4e5f6g7h8/200x350/path/to/image.jpg
+```
 
 ## Multi-Layer Caching
 
@@ -302,6 +366,11 @@ Each tier supports multi-layer caching with optional memory and disk layers:
 **Layer 2: Disk-Based Cache (Optional)** - Persistent
    - Hierarchical directory structure for scalability
    - Expiration-based eviction (TTL) + size-based eviction (LRU)
+   - **Asynchronous writes:** Disk cache writes happen in background workers (4 workers by default)
+     - Memory cache writes complete synchronously (fast)
+     - Disk writes queue asynchronously without blocking user responses
+     - Worker pool prevents goroutine explosion under high load
+     - Configurable worker count and queue size per tier
    - **Asynchronous cleanup:** Background goroutine runs periodic cleanup (~30s interval, adaptive backoff)
      - Deletes expired files (based on `ttl_seconds`)
      - Enforces size limit (deletes oldest files if cache exceeds `max_size_mb`)
@@ -335,7 +404,12 @@ Each tier supports multi-layer caching with optional memory and disk layers:
         "ttl_seconds": 300,
         "max_size_mb": 2048,
         "dir": "/var/cache/mage/sources",
-        "clear_on_startup": false
+        "clear_on_startup": false,
+        "async_write": {
+          "enabled": true,
+          "num_workers": 4,
+          "queue_size": 1000
+        }
       }
     },
     "thumbs": {
@@ -350,7 +424,12 @@ Each tier supports multi-layer caching with optional memory and disk layers:
         "ttl_seconds": 300,
         "max_size_mb": 10240,
         "dir": "/var/cache/mage/thumbs",
-        "clear_on_startup": false
+        "clear_on_startup": false,
+        "async_write": {
+          "enabled": true,
+          "num_workers": 4,
+          "queue_size": 1000
+        }
       }
     }
   }

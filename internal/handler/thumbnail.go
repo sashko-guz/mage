@@ -293,6 +293,8 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Cache the thumbnail result if thumbnail caching is enabled
+	// SetThumbnail: Memory cache synchronously (fast, user sees response immediately)
+	// SetThumbnailAsync: Disk cache asynchronously (background, doesn't block response)
 	if h.cachingEnabled && err == nil && result != nil {
 		cachedStore := store.(*storage.CachedStorage)
 		
@@ -301,6 +303,8 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			thumbnail := result.(*ThumbnailResult)
 			// Encode to binary format (avoids JSON overhead)
 			binaryData := encodeThumbnailBinary(thumbnail)
+			
+			// Store in memory cache synchronously (fast)
 			if cacheErr := cachedStore.SetThumbnail(cacheKey, binaryData); cacheErr != nil {
 				log.Printf("[ThumbnailHandler] Error caching thumbnail result: %v", cacheErr)
 				// Don't fail if caching fails, just continue
@@ -331,4 +335,15 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[ThumbnailHandler] Successfully generated thumbnail for: %s", req.Path)
+
+	// Queue asynchronous disk cache write (happens in background after response is sent)
+	if h.cachingEnabled && result != nil {
+		cachedStore := store.(*storage.CachedStorage)
+		if cachedStore.ThumbsCacheEnabled() {
+			thumbnail := result.(*ThumbnailResult)
+			binaryData := encodeThumbnailBinary(thumbnail)
+			// This is non-blocking and returns immediately
+			cachedStore.SetThumbnailAsync(cacheKey, binaryData)
+		}
+	}
 }

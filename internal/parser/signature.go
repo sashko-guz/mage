@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 
 	"github.com/sashko-guz/mage/internal/operations"
@@ -31,35 +30,28 @@ func (s *Signature) IsEnabled() bool {
 }
 
 // Generate creates HMAC-SHA256 signature for the request parameters
-// Payload includes: width:height:filterString:path
-// Width/height use "*" to represent nil (aspect ratio preserving / wildcard)
+// Payload is the raw URL path after the signature: /{size}/[filters:{filters}/]{path}
+// Width/height can be nil for aspect ratio preserving sizes (rendered as "x" in URL)
 func (s *Signature) Generate(width, height *int, filterString, path string) string {
 	if !s.IsEnabled() {
 		return ""
 	}
 
-	// Convert optional dimensions to string representation
-	// Use "*" as wildcard for unspecified dimensions
-	widthStr := "*"
-	heightStr := "*"
-	if width != nil {
-		widthStr = strconv.Itoa(*width)
-	}
-	if height != nil {
-		heightStr = strconv.Itoa(*height)
+	// Build the size string for the URL
+	sizeStr := formatSizeString(width, height)
+
+	// Build the raw URL path that will be hashed
+	// This must match what Verify() expects to hash
+	var payloadPath string
+	if filterString != "" {
+		payloadPath = fmt.Sprintf("/%s/filters:%s/%s", sizeStr, filterString, path)
+	} else {
+		payloadPath = fmt.Sprintf("/%s/%s", sizeStr, path)
 	}
 
-	// Build payload from all parameters that need protection
-	payload := fmt.Sprintf("%s:%s:%s:%s",
-		widthStr,
-		heightStr,
-		filterString, // Empty string if no filters
-		path,
-	)
-
-	// Create HMAC-SHA256
+	// Create HMAC-SHA256 of the raw URL path
 	h := hmac.New(sha256.New, []byte(s.secretKey))
-	h.Write([]byte(payload))
+	h.Write([]byte(payloadPath))
 
 	// Return first 16 hex chars (64-bit hash)
 	return hex.EncodeToString(h.Sum(nil))[:16]
@@ -161,41 +153,6 @@ func (s *Signature) GenerateURL(width, height *int, filterString, path string) s
 	}
 	return fmt.Sprintf("/thumbs/%s/%s/%s",
 		signature, sizeStr, path)
-}
-
-// Legacy functions for backward compatibility
-
-// NewSignatureManager creates a new Signature (legacy name for backward compatibility)
-// Deprecated: Use NewSignature instead
-func NewSignatureManager(secretKey string) *Signature {
-	return NewSignature(secretKey)
-}
-
-// NewSigner creates a new Signature (legacy name for backward compatibility)
-// Deprecated: Use NewSignature instead
-func NewSigner(secretKey string) *Signature {
-	return NewSignature(secretKey)
-}
-
-// GenerateSignature creates HMAC-SHA256 signature for the request parameters
-// Deprecated: Use Signature.Generate instead
-func GenerateSignature(width, height *int, filterString, path, secretKey string) string {
-	s := NewSignature(secretKey)
-	return s.Generate(width, height, filterString, path)
-}
-
-// VerifySignature validates that the provided signature matches the expected signature
-// Deprecated: Use Signature.Verify instead
-func VerifySignature(req *operations.Request, secretKey string) bool {
-	s := NewSignature(secretKey)
-	return s.Verify(req) == nil
-}
-
-// GenerateURL creates a signed URL from request parameters
-// Deprecated: Use Signature.GenerateURL instead
-func GenerateURL(width, height *int, filterString, path, secretKey string) string {
-	s := NewSignature(secretKey)
-	return s.GenerateURL(width, height, filterString, path)
 }
 
 // formatSizeString converts optional width/height to URL size string
