@@ -44,4 +44,4 @@ You can configure runtime settings from `.env` (for example `LOG_LEVEL=error`).
 
 ## License
 
-Project is created for learning purposes and is `NOT RECOMMENDED` to be used `IN PRODUCTION`
+Project is created for learning purposes and is `NOT RECOMMENDED FOR PRODUCTION` usage
