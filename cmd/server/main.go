@@ -151,16 +151,17 @@ func buildRoutes(thumbnailHandler *handler.ThumbnailHandler) http.Handler {
 func logServerInfo(port, signatureKey string) {
 	addr := ":" + port
 	log.Printf("[Server] Server listening on %s", addr)
-	log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
 
 	signatureStatus := "DISABLED"
 	if signatureKey != "" {
 		signatureStatus = "ENABLED (secret key set in storage config)"
 		log.Printf("[Server] Signature validation: %s", signatureStatus)
-		logger.Infof("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(88)/image.jpg", addr)
+		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
+		logger.Infof("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(90)/image.jpg", addr)
 	} else {
 		log.Printf("[Server] Signature validation: %s", signatureStatus)
-		logger.Infof("[Server] Example: http://localhost%s/thumbs/400x300/filters:format(webp);quality(88)/image.jpg", addr)
+		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/{size}/[filters:{filters}/]{path}", addr)
+		logger.Infof("[Server] Example: http://localhost%s/thumbs/400x300/filters:format(webp);quality(90)/image.jpg", addr)
 	}
 }
 
