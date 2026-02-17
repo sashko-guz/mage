@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -52,34 +53,53 @@ func EnabledDebug() bool {
 	return enabled(LevelDebug)
 }
 
+func CurrentLevelString() string {
+	switch Level(currentLevel.Load()) {
+	case LevelDebug:
+		return "debug"
+	case LevelWarn:
+		return "warn"
+	case LevelError:
+		return "error"
+	default:
+		return "info"
+	}
+}
+
 func Debugf(format string, args ...any) {
 	if enabled(LevelDebug) {
-		log.Printf("[DEBUG] "+format, args...)
+		outputf("DEBUG", format, args...)
 	}
 }
 
 func Infof(format string, args ...any) {
 	if enabled(LevelInfo) {
-		log.Printf("[INFO] "+format, args...)
+		outputf("INFO", format, args...)
 	}
 }
 
 func Warnf(format string, args ...any) {
 	if enabled(LevelWarn) {
-		log.Printf("[WARN] "+format, args...)
+		outputf("WARN", format, args...)
 	}
 }
 
 func Errorf(format string, args ...any) {
 	if enabled(LevelError) {
-		log.Printf("[ERROR] "+format, args...)
+		outputf("ERROR", format, args...)
 	}
 }
 
 func Fatalf(format string, args ...any) {
-	log.Fatalf("[FATAL] "+format, args...)
+	outputf("FATAL", format, args...)
+	os.Exit(1)
 }
 
 func enabled(level Level) bool {
 	return level >= Level(currentLevel.Load())
+}
+
+func outputf(level string, format string, args ...any) {
+	message := fmt.Sprintf("[%s] %s", level, fmt.Sprintf(format, args...))
+	_ = log.Output(3, message)
 }

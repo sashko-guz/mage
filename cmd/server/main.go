@@ -21,6 +21,7 @@ import (
 
 func main() {
 	_ = godotenv.Load()
+
 	setupLogging()
 
 	if err := run(); err != nil {
@@ -32,6 +33,7 @@ func run() error {
 	cfg := loadConfig()
 
 	log.Printf("[Server] Starting…")
+	log.Printf("[Server] Log level: %s", logger.CurrentLevelString())
 	log.Printf("[Server] Storage config loaded from: %s", cfg.StorageConfigPath)
 
 	vipsCfg := configureVips()
