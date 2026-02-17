@@ -2,12 +2,12 @@ package storage
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/sashko-guz/mage/internal/cache"
+	"github.com/sashko-guz/mage/internal/logger"
 	"github.com/sashko-guz/mage/internal/storage/drivers"
 )
 
@@ -25,7 +25,7 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 
 	// Step 2: Check if caching is configured
 	if cfg.Cache == nil {
-		log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
+		logger.Infof("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
 		return baseStorage, cfg.SignatureSecret, nil
 	}
 
@@ -35,7 +35,7 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 		return nil, "", err
 	}
 
-	log.Printf("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
+	logger.Infof("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
 	return cachedStorage, cfg.SignatureSecret, nil
 }
 
@@ -81,7 +81,7 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 			(cfg.Cache.Thumbs.Memory != nil && cfg.Cache.Thumbs.Memory.Enabled != nil && *cfg.Cache.Thumbs.Memory.Enabled)))
 
 	if !sourcesEnabled && !thumbsEnabled {
-		log.Printf("[Cache] No cache enabled")
+		logger.Infof("[Cache] No cache enabled")
 		return baseStorage, nil
 	}
 
@@ -93,7 +93,7 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 	if thumbsEnabled {
 		cacheInfo = append(cacheInfo, "Thumbs")
 	}
-	log.Printf("[Cache] Enabled for: %s", strings.Join(cacheInfo, ", "))
+	logger.Infof("[Cache] Enabled for: %s", strings.Join(cacheInfo, ", "))
 
 	cacheConfig := CachedStorageConfig{}
 	defaultTTL := 5 * time.Minute
@@ -295,10 +295,10 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 				TTL:      cfg.SourceMemoryCache.TTL,
 			})
 			if err != nil {
-				log.Printf("[CachedStorage] Failed to init source memory cache: %v", err)
+				logger.Warnf("[CachedStorage] Failed to init source memory cache: %v", err)
 			} else {
 				cs.sourceMemoryCache = memCache
-				log.Printf("[CachedStorage] Source memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v",
+				logger.Infof("[CachedStorage] Source memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v",
 					cfg.SourceMemoryCache.MaxSizeMB, maxItems, cfg.SourceMemoryCache.TTL)
 			}
 		}
@@ -319,7 +319,7 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 				return nil, fmt.Errorf("failed to create source disk cache: %w", err)
 			}
 			cs.sourceDiskCache = diskCache
-			log.Printf("[CachedStorage] Source disk cache: Dir=%s, MaxSize=%dMB, TTL=%v",
+			logger.Infof("[CachedStorage] Source disk cache: Dir=%s, MaxSize=%dMB, TTL=%v",
 				cfg.SourceDiskCache.BasePath, cfg.SourceDiskCache.MaxSizeMB, cfg.SourceDiskCache.TTL)
 		}
 	}
@@ -338,10 +338,10 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 				TTL:      cfg.ThumbMemoryCache.TTL,
 			})
 			if err != nil {
-				log.Printf("[CachedStorage] Failed to init thumb memory cache: %v", err)
+				logger.Warnf("[CachedStorage] Failed to init thumb memory cache: %v", err)
 			} else {
 				cs.thumbMemoryCache = memCache
-				log.Printf("[CachedStorage] Thumb memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v",
+				logger.Infof("[CachedStorage] Thumb memory cache: MaxSize=%dMB, MaxItems=%d, TTL=%v",
 					cfg.ThumbMemoryCache.MaxSizeMB, maxItems, cfg.ThumbMemoryCache.TTL)
 			}
 		}
@@ -362,7 +362,7 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 				return nil, fmt.Errorf("failed to create thumb disk cache: %w", err)
 			}
 			cs.thumbDiskCache = diskCache
-			log.Printf("[CachedStorage] Thumb disk cache: Dir=%s, MaxSize=%dMB, TTL=%v",
+			logger.Infof("[CachedStorage] Thumb disk cache: Dir=%s, MaxSize=%dMB, TTL=%v",
 				cfg.ThumbDiskCache.BasePath, cfg.ThumbDiskCache.MaxSizeMB, cfg.ThumbDiskCache.TTL)
 		}
 	}
@@ -370,13 +370,13 @@ func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStora
 	// Initialize async write workers for sources and thumbs
 	if cfg.SourceAsyncWrite != nil && cfg.SourceAsyncWrite.Enabled && cs.sourceDiskCache != nil {
 		cs.initSourceWorkers(cfg.SourceAsyncWrite.NumWorkers, cfg.SourceAsyncWrite.QueueSize)
-		log.Printf("[CachedStorage] Source async write: %d workers, queue size %d",
+		logger.Infof("[CachedStorage] Source async write: %d workers, queue size %d",
 			cfg.SourceAsyncWrite.NumWorkers, cfg.SourceAsyncWrite.QueueSize)
 	}
 
 	if cfg.ThumbAsyncWrite != nil && cfg.ThumbAsyncWrite.Enabled && cs.thumbDiskCache != nil {
 		cs.initThumbWorkers(cfg.ThumbAsyncWrite.NumWorkers, cfg.ThumbAsyncWrite.QueueSize)
-		log.Printf("[CachedStorage] Thumb async write: %d workers, queue size %d",
+		logger.Infof("[CachedStorage] Thumb async write: %d workers, queue size %d",
 			cfg.ThumbAsyncWrite.NumWorkers, cfg.ThumbAsyncWrite.QueueSize)
 	}
 

@@ -2,10 +2,10 @@ package cache
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/dgraph-io/ristretto"
+	"github.com/sashko-guz/mage/internal/logger"
 )
 
 // MemoryCache provides high-performance in-memory caching with LRU eviction
@@ -43,14 +43,14 @@ func NewMemoryCache(cfg MemoryCacheConfig) (*MemoryCache, error) {
 		BufferItems: 64,              // Number of keys per Get buffer
 		Metrics:     true,            // Enable metrics collection
 		OnEvict: func(item *ristretto.Item) {
-			log.Printf("[MemoryCache] Evicted item (cost: %d bytes)", item.Cost)
+			logger.Debugf("[MemoryCache] Evicted item (cost: %d bytes)", item.Cost)
 		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ristretto cache: %w", err)
 	}
 
-	log.Printf("[MemoryCache] Initialized: MaxSize=%dMB, MaxItems=%d, TTL=%v",
+	logger.Infof("[MemoryCache] Initialized: MaxSize=%dMB, MaxItems=%d, TTL=%v",
 		cfg.MaxSize/(1024*1024), cfg.MaxItems, cfg.TTL)
 
 	return &MemoryCache{
@@ -68,11 +68,11 @@ func (mc *MemoryCache) Get(key string) ([]byte, bool) {
 
 	data, ok := value.([]byte)
 	if !ok {
-		log.Printf("[MemoryCache] Invalid data type for key: %s", key)
+		logger.Warnf("[MemoryCache] Invalid data type for key: %s", key)
 		return nil, false
 	}
 
-	log.Printf("[MemoryCache] Cache HIT for key: %s", key)
+	logger.Debugf("[MemoryCache] Cache HIT for key: %s", key)
 	return data, true
 }
 
@@ -86,7 +86,7 @@ func (mc *MemoryCache) Set(key string, data []byte, ttl time.Duration) bool {
 	success := mc.cache.SetWithTTL(key, data, cost, ttl)
 
 	if !success {
-		log.Printf("[MemoryCache] Warning: Failed to set key (buffer full or rejected)")
+		logger.Warnf("[MemoryCache] Failed to set key (buffer full or rejected)")
 	}
 
 	return success
@@ -100,7 +100,7 @@ func (mc *MemoryCache) Delete(key string) {
 // Clear removes all entries from the cache
 func (mc *MemoryCache) Clear() {
 	mc.cache.Clear()
-	log.Printf("[MemoryCache] Cache cleared")
+	logger.Infof("[MemoryCache] Cache cleared")
 }
 
 // Wait blocks until all pending writes are processed
@@ -143,5 +143,5 @@ func (mc *MemoryCache) GetStats() map[string]any {
 // Close closes the cache and releases resources
 func (mc *MemoryCache) Close() {
 	mc.cache.Close()
-	log.Printf("[MemoryCache] Cache closed")
+	logger.Infof("[MemoryCache] Cache closed")
 }

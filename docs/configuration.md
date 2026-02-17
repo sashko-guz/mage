@@ -5,6 +5,7 @@
 - `PORT` - Server port (default: `8080`)
 - `STORAGE_CONFIG_PATH` - Path to storage config file (default: `./storage.json`)
 - `VIPS_CONCURRENCY` - libvips concurrency level (optional)
+- `LOG_LEVEL` - Log level: `debug`, `info`, `warn`, `error` (default: `info`)
 - `HTTP_READ_TIMEOUT_SECONDS` - Time to read full request incl. body (default: `5`)
 - `HTTP_READ_HEADER_TIMEOUT_SECONDS` - Time to read request headers (default: `2`)
 - `HTTP_WRITE_TIMEOUT_SECONDS` - Time to write response (default: `30`)

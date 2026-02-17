@@ -3,10 +3,11 @@ package drivers
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sashko-guz/mage/internal/logger"
 )
 
 type LocalStorage struct {
@@ -14,7 +15,7 @@ type LocalStorage struct {
 }
 
 func NewLocalStorage(basePath string) (*LocalStorage, error) {
-	log.Printf("[Local storage] Initializing local storage with base path: %s", basePath)
+	logger.Infof("[Local storage] Initializing local storage with base path: %s", basePath)
 
 	absBasePath, err := filepath.Abs(basePath)
 	if err != nil {
@@ -60,30 +61,30 @@ func (l *LocalStorage) GetObject(ctx context.Context, key string) ([]byte, error
 	fileInfo, err := os.Stat(absFullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("[LocalStorage] file not found: %s", absFullPath)
+			logger.Debugf("[LocalStorage] file not found: %s", absFullPath)
 			return nil, fmt.Errorf("file not found: %s", key)
 		}
 		if os.IsPermission(err) {
-			log.Printf("[LocalStorage] permission denied: %s", absFullPath)
+			logger.Warnf("[LocalStorage] permission denied: %s", absFullPath)
 			return nil, fmt.Errorf("permission denied for file: %s", key)
 		}
-		log.Printf("[LocalStorage] failed to access file %s: %v", absFullPath, err)
+		logger.Errorf("[LocalStorage] failed to access file %s: %v", absFullPath, err)
 		return nil, fmt.Errorf("failed to access file: %s", key)
 	}
 
 	// Ensure it's a regular file, not a directory
 	if fileInfo.IsDir() {
-		log.Printf("[LocalStorage] path is a directory: %s", absFullPath)
+		logger.Warnf("[LocalStorage] path is a directory: %s", absFullPath)
 		return nil, fmt.Errorf("path is a directory, not a file: %s", key)
 	}
 
 	data, err := os.ReadFile(absFullPath)
 	if err != nil {
 		if os.IsPermission(err) {
-			log.Printf("[LocalStorage] permission denied reading file: %s", absFullPath)
+			logger.Warnf("[LocalStorage] permission denied reading file: %s", absFullPath)
 			return nil, fmt.Errorf("permission denied reading file: %s", key)
 		}
-		log.Printf("[LocalStorage] failed to read file %s: %v", absFullPath, err)
+		logger.Errorf("[LocalStorage] failed to read file %s: %v", absFullPath, err)
 		return nil, fmt.Errorf("failed to read file: %s", key)
 	}
 

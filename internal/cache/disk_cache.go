@@ -3,7 +3,6 @@ package cache
 import (
 	"encoding/hex"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
+	"github.com/sashko-guz/mage/internal/logger"
 	"lukechampine.com/blake3"
 )
 
@@ -98,18 +98,18 @@ func NewDiskCache(basePath string, ttl time.Duration, clearOnStartup bool, maxSi
 	dc.initLRU()
 
 	if clearOnStartup {
-		log.Printf("[DiskCache] Clearing all cache files in %s (clearOnStartup=true)", absPath)
+		logger.Infof("[DiskCache] Clearing all cache files in %s (clearOnStartup=true)", absPath)
 		if err := dc.Clear(); err != nil {
-			log.Printf("[DiskCache] Error during startup cache clear: %v", err)
+			logger.Errorf("[DiskCache] Error during startup cache clear: %v", err)
 		}
 	} else {
-		log.Printf("[DiskCache] Loading cache index from disk: %s", absPath)
+		logger.Infof("[DiskCache] Loading cache index from disk: %s", absPath)
 		dc.loadIndexFromDisk()
 	}
 
 	go dc.cleanupExpired()
 
-	log.Printf("[DiskCache] Initialized: BasePath=%s, TTL=%v, MaxSize=%v, MaxItems=%d", absPath, ttl, formatBytes(maxSizeBytes), dc.MaxItems)
+	logger.Infof("[DiskCache] Initialized: BasePath=%s, TTL=%v, MaxSize=%v, MaxItems=%d", absPath, ttl, formatBytes(maxSizeBytes), dc.MaxItems)
 	return dc, nil
 }
 
@@ -130,7 +130,7 @@ func (dc *DiskCache) Get(key string) ([]byte, error) {
 	if now.After(entry.expiresAt) {
 		dc.lru.Remove(hash)
 		dc.mu.Unlock()
-		log.Printf("[DiskCache] Cache entry expired for key: %s (expired at %v)", key, entry.expiresAt.Format(time.RFC3339))
+		logger.Debugf("[DiskCache] Cache entry expired for key: %s (expired at %v)", key, entry.expiresAt.Format(time.RFC3339))
 		return nil, ErrCacheNotFound
 	}
 
@@ -147,11 +147,11 @@ func (dc *DiskCache) Get(key string) ([]byte, error) {
 			dc.mu.Unlock()
 			return nil, ErrCacheNotFound
 		}
-		log.Printf("[DiskCache] Error reading cache file %s: %v", filePath, err)
+		logger.Errorf("[DiskCache] Error reading cache file %s: %v", filePath, err)
 		return nil, fmt.Errorf("failed to read cache file: %w", err)
 	}
 
-	log.Printf("[DiskCache] Cache HIT for key: %s (expires at %v)", key, entry.expiresAt.Format(time.RFC3339))
+	logger.Debugf("[DiskCache] Cache HIT for key: %s (expires at %v)", key, entry.expiresAt.Format(time.RFC3339))
 	return data, nil
 }
 
@@ -194,7 +194,7 @@ func (dc *DiskCache) Set(key string, data []byte) error {
 	dc.evictForSizeLocked(2048)
 	dc.mu.Unlock()
 
-	log.Printf("[DiskCache] Cached data for key: %s (expires at %v, TTL: %v)", key, expiresAt.Format(time.RFC3339), dc.TTL)
+	logger.Debugf("[DiskCache] Cached data for key: %s (expires at %v, TTL: %v)", key, expiresAt.Format(time.RFC3339), dc.TTL)
 	return nil
 }
 
@@ -227,7 +227,7 @@ func (dc *DiskCache) Clear() error {
 	dc.cleanupPos = 0
 	dc.initLRU()
 
-	log.Printf("[DiskCache] Cache cleared")
+	logger.Infof("[DiskCache] Cache cleared")
 	return nil
 }
 
@@ -245,7 +245,7 @@ func (dc *DiskCache) cleanupExpired() {
 	timer := time.NewTimer(interval)
 	defer timer.Stop()
 
-	log.Printf("[DiskCache] Cleanup goroutine started for %s, base interval %v", dc.basePath, baseInterval)
+	logger.Debugf("[DiskCache] Cleanup goroutine started for %s, base interval %v", dc.basePath, baseInterval)
 
 	for {
 		select {
@@ -261,7 +261,7 @@ func (dc *DiskCache) cleanupExpired() {
 					}
 				}
 				timer.Reset(interval)
-				log.Printf("[DiskCache] Activity detected, cleanup accelerated (removed=%d, entries=%d, size=%v)",
+				logger.Debugf("[DiskCache] Activity detected, cleanup accelerated (removed=%d, entries=%d, size=%v)",
 					stats.removed, stats.currentCount, formatBytes(stats.currentSize))
 			}
 			continue
@@ -282,7 +282,7 @@ func (dc *DiskCache) cleanupExpired() {
 		}
 
 		timer.Reset(interval)
-		log.Printf("[DiskCache] Cleanup scheduled in %v (removed=%d, entries=%d, size=%v)",
+		logger.Debugf("[DiskCache] Cleanup scheduled in %v (removed=%d, entries=%d, size=%v)",
 			interval, stats.removed, stats.currentCount, formatBytes(stats.currentSize))
 	}
 }
@@ -432,7 +432,7 @@ func (dc *DiskCache) loadIndexFromDisk() {
 		return nil
 	})
 
-	log.Printf("[DiskCache] Startup index load complete: scanned=%d, removed=%d, entries=%d, size=%v",
+	logger.Infof("[DiskCache] Startup index load complete: scanned=%d, removed=%d, entries=%d, size=%v",
 		totalScanned, deletedCount, dc.lru.Len(), formatBytes(dc.currentSize.Load()))
 }
 
@@ -527,7 +527,7 @@ func (dc *DiskCache) deleteWorker() {
 
 func (dc *DiskCache) deleteFile(path string) {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		log.Printf("[DiskCache] Error deleting evicted file %s: %v", path, err)
+		logger.Errorf("[DiskCache] Error deleting evicted file %s: %v", path, err)
 		return
 	}
 

@@ -14,15 +14,17 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/sashko-guz/mage/internal/config"
 	"github.com/sashko-guz/mage/internal/handler"
+	"github.com/sashko-guz/mage/internal/logger"
 	"github.com/sashko-guz/mage/internal/processor"
 	"github.com/sashko-guz/mage/internal/storage"
 )
 
 func main() {
+	_ = godotenv.Load()
 	setupLogging()
 
 	if err := run(); err != nil {
-		log.Fatalf("[Server] Fatal error: %v", err)
+		logger.Fatalf("[Server] Fatal error: %v", err)
 	}
 }
 
@@ -53,12 +55,12 @@ func run() error {
 }
 
 func setupLogging() {
-	log.SetOutput(os.Stderr)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	logger.SetOutput(os.Stderr)
+	logger.SetFlags(log.LstdFlags | log.Lshortfile)
+	logger.InitFromEnv()
 }
 
 func loadConfig() *config.Config {
-	_ = godotenv.Load()
 	return config.Load()
 }
 
@@ -70,11 +72,11 @@ func configureVips() *vips.Config {
 
 	conc, err := strconv.Atoi(vipsConcurrency)
 	if err != nil || conc <= 0 {
-		log.Printf("[Server] Ignoring VIPS_CONCURRENCY=%q (must be positive integer)", vipsConcurrency)
+		logger.Warnf("[Server] Ignoring VIPS_CONCURRENCY=%q (must be positive integer)", vipsConcurrency)
 		return nil
 	}
 
-	log.Printf("[Server] libvips concurrency set to %d via VIPS_CONCURRENCY", conc)
+	logger.Infof("[Server] libvips concurrency set to %d via VIPS_CONCURRENCY", conc)
 	return &vips.Config{ConcurrencyLevel: conc}
 }
 
@@ -97,7 +99,7 @@ func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) 
 
 	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, signatureKey)
 	if err != nil {
-		log.Fatalf("[Server] Failed to initialize thumbnail handler: %v", err)
+		logger.Fatalf("[Server] Failed to initialize thumbnail handler: %v", err)
 	}
 
 	mux := buildRoutes(thumbnailHandler)
@@ -120,12 +122,12 @@ func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) 
 		},
 	}
 
-	log.Printf("[Server] HTTP server configured:")
-	log.Printf("  - ReadTimeout: %v", srv.ReadTimeout)
-	log.Printf("  - ReadHeaderTimeout: %v", srv.ReadHeaderTimeout)
-	log.Printf("  - WriteTimeout: %v", srv.WriteTimeout)
-	log.Printf("  - IdleTimeout: %v", srv.IdleTimeout)
-	log.Printf("  - MaxHeaderBytes: %d bytes", srv.MaxHeaderBytes)
+	logger.Infof("[Server] HTTP server configured:")
+	logger.Infof("  - ReadTimeout: %v", srv.ReadTimeout)
+	logger.Infof("  - ReadHeaderTimeout: %v", srv.ReadHeaderTimeout)
+	logger.Infof("  - WriteTimeout: %v", srv.WriteTimeout)
+	logger.Infof("  - IdleTimeout: %v", srv.IdleTimeout)
+	logger.Infof("  - MaxHeaderBytes: %d bytes", srv.MaxHeaderBytes)
 
 	return srv
 }
@@ -153,10 +155,10 @@ func logServerInfo(port, signatureKey string) {
 	if signatureKey != "" {
 		signatureStatus = "ENABLED (secret key set in storage config)"
 		log.Printf("[Server] Signature validation: %s", signatureStatus)
-		log.Printf("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(88)/image.jpg", addr)
+		logger.Infof("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(88)/image.jpg", addr)
 	} else {
 		log.Printf("[Server] Signature validation: %s", signatureStatus)
-		log.Printf("[Server] Example: http://localhost%s/thumbs/400x300/filters:format(webp);quality(88)/image.jpg", addr)
+		logger.Infof("[Server] Example: http://localhost%s/thumbs/400x300/filters:format(webp);quality(88)/image.jpg", addr)
 	}
 }
 

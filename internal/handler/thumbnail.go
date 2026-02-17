@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"runtime"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sashko-guz/mage/internal/logger"
 	"github.com/sashko-guz/mage/internal/operations"
 	"github.com/sashko-guz/mage/internal/parser"
 	"github.com/sashko-guz/mage/internal/processor"
@@ -45,11 +45,11 @@ func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcess
 	if override := os.Getenv("VIPS_MAX_CONCURRENT"); override != "" {
 		if val, err := strconv.Atoi(override); err == nil && val > 0 {
 			maxConcurrent = val
-			log.Printf("[ThumbnailHandler] Using VIPS_MAX_CONCURRENT override: %d", maxConcurrent)
+			logger.Infof("[ThumbnailHandler] Using VIPS_MAX_CONCURRENT override: %d", maxConcurrent)
 		}
 	}
 
-	log.Printf("[ThumbnailHandler] Process concurrency: %d workers (CPU cores: %d)", maxConcurrent, numCPU)
+	logger.Infof("[ThumbnailHandler] Process concurrency: %d workers (CPU cores: %d)", maxConcurrent, numCPU)
 
 	return &ThumbnailHandler{
 		storage:        stor,
@@ -76,7 +76,7 @@ var bufferPool = sync.Pool{
 // Uses buffer pooling to reduce allocations and GC pressure
 func encodeThumbnailBinary(t *ThumbnailResult) []byte {
 	buf := bufferPool.Get().(*bytes.Buffer)
-	buf.Reset() // Clear previous data
+	buf.Reset()               // Clear previous data
 	defer bufferPool.Put(buf) // Return to pool
 
 	// Write content type length (4 bytes, big-endian)
@@ -212,12 +212,12 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if cachedStore.ThumbsCacheEnabled() {
 			// Check thumbnail cache first (memory → disk)
 			if cachedData, found, err := cachedStore.GetThumbnail(cacheKey); err == nil && found {
-				log.Printf("[ThumbnailHandler] Cache HIT - serving thumbnail immediately: %s", cacheKey)
+				logger.Debugf("[ThumbnailHandler] Cache HIT - serving thumbnail immediately: %s", cacheKey)
 
 				// Decode cached result using binary format (no JSON overhead)
 				thumbnail, err := decodeThumbnailBinary(cachedData)
 				if err != nil {
-					log.Printf("[ThumbnailHandler] Error decoding cached thumbnail: %v", err)
+					logger.Warnf("[ThumbnailHandler] Error decoding cached thumbnail: %v", err)
 					// Continue to reprocess if cache is corrupted
 				} else {
 					// Send cached response - no parsing or signature validation needed!
@@ -227,7 +227,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
 
 					if _, err := w.Write(thumbnail.Data); err != nil {
-						log.Printf("[ThumbnailHandler] Error writing response: %v", err)
+						logger.Warnf("[ThumbnailHandler] Error writing response: %v", err)
 					}
 					return
 				}
@@ -239,26 +239,27 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse URL path: /thumbs/[{signature}/]{size}/[filters:{filters}/]{path}
 	req, err := parser.ParseURL(r.URL.Path, "")
 	if err != nil {
-		log.Printf("[ThumbnailHandler] Error parsing URL: %v (url=%s)", err, r.URL.String())
+		logger.Warnf("[ThumbnailHandler] Error parsing URL: %v (url=%s)", err, r.URL.String())
 		http.Error(w, fmt.Sprintf("Invalid URL format: %v (url=%s)", err, r.URL.String()), http.StatusBadRequest)
 		return
 	}
 
-	// Log request with detailed operations
-	sigInfo := ""
-	if req.ProvidedSignature != "" {
-		sigInfo = fmt.Sprintf(", signature=%s", req.ProvidedSignature)
+	if logger.EnabledDebug() {
+		sigInfo := ""
+		if req.ProvidedSignature != "" {
+			sigInfo = fmt.Sprintf(", signature=%s", req.ProvidedSignature)
+		}
+		cacheMsgPrefix := ""
+		if h.cachingEnabled {
+			cacheMsgPrefix = "Cache MISS - "
+		}
+		logger.Debugf("[ThumbnailHandler] %sProcessing thumbnail: path=%s, operations=[%s]%s, url=%s",
+			cacheMsgPrefix, req.Path, formatOperations(req.Operations, req.FilterString), sigInfo, r.URL.Path)
 	}
-	cacheMsgPrefix := ""
-	if h.cachingEnabled {
-		cacheMsgPrefix = "Cache MISS - "
-	}
-	log.Printf("[ThumbnailHandler] %sProcessing thumbnail: path=%s, operations=[%s]%s, url=%s",
-		cacheMsgPrefix, req.Path, formatOperations(req.Operations, req.FilterString), sigInfo, r.URL.Path)
 
 	// Verify signature if enabled
 	if err := h.signer.Verify(req); err != nil {
-		log.Printf("[ThumbnailHandler] Signature validation failed: %v (url=%s)", err, r.URL.String())
+		logger.Warnf("[ThumbnailHandler] Signature validation failed: %v (url=%s)", err, r.URL.String())
 		// Return 404 instead of 403 to avoid information disclosure
 		// This prevents revealing whether a resource exists when signature is invalid
 		http.Error(w, fmt.Sprintf("Signature validation failed: %v", err), http.StatusNotFound)
@@ -275,14 +276,14 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Fetch image from storage (with source caching)
 		imageData, err := store.GetObject(r.Context(), req.Path)
 		if err != nil {
-			log.Printf("[ThumbnailHandler] Error fetching image from storage: %v", err)
+			logger.Errorf("[ThumbnailHandler] Error fetching image from storage: %v", err)
 			return nil, err
 		}
 
 		// Generate thumbnail
 		thumbnail, contentType, err := h.processor.CreateThumbnail(imageData, req)
 		if err != nil {
-			log.Printf("[ThumbnailHandler] Error creating thumbnail: %v", err)
+			logger.Errorf("[ThumbnailHandler] Error creating thumbnail: %v", err)
 			return nil, err
 		}
 
@@ -297,16 +298,16 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// SetThumbnailAsync: Disk cache asynchronously (background, doesn't block response)
 	if h.cachingEnabled && err == nil && result != nil {
 		cachedStore := store.(*storage.CachedStorage)
-		
+
 		// Only cache if thumbnails caching is actually enabled
 		if cachedStore.ThumbsCacheEnabled() {
 			thumbnail := result.(*ThumbnailResult)
 			// Encode to binary format (avoids JSON overhead)
 			binaryData := encodeThumbnailBinary(thumbnail)
-			
+
 			// Store in memory cache synchronously (fast)
 			if cacheErr := cachedStore.SetThumbnail(cacheKey, binaryData); cacheErr != nil {
-				log.Printf("[ThumbnailHandler] Error caching thumbnail result: %v", cacheErr)
+				logger.Warnf("[ThumbnailHandler] Error caching thumbnail result: %v", cacheErr)
 				// Don't fail if caching fails, just continue
 			}
 		}
@@ -321,7 +322,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Log if this was a concurrent duplicate request
 	if isDuplicate {
-		log.Printf("[ThumbnailHandler] Concurrent duplicate request served from singleflight: %s", cacheKey)
+		logger.Debugf("[ThumbnailHandler] Concurrent duplicate request served from singleflight: %s", cacheKey)
 	}
 
 	// Send response
@@ -331,10 +332,10 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
 
 	if _, err := w.Write(thumbnail.Data); err != nil {
-		log.Printf("[ThumbnailHandler] Error writing response: %v", err)
+		logger.Warnf("[ThumbnailHandler] Error writing response: %v", err)
 	}
 
-	log.Printf("[ThumbnailHandler] Successfully generated thumbnail for: %s", req.Path)
+	logger.Debugf("[ThumbnailHandler] Successfully generated thumbnail for: %s", req.Path)
 
 	// Queue asynchronous disk cache write (happens in background after response is sent)
 	if h.cachingEnabled && result != nil {

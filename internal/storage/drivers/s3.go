@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/sashko-guz/mage/internal/logger"
 	"golang.org/x/net/http2"
 )
 
@@ -89,7 +89,7 @@ func createOptimizedHTTPClient(httpConfig *S3HTTPConfig) *http.Client {
 
 	// Configure HTTP/2
 	if err := http2.ConfigureTransport(transport); err != nil {
-		log.Printf("[S3 Storage] Warning: Failed to configure HTTP/2: %v", err)
+		logger.Warnf("[S3 Storage] Failed to configure HTTP/2: %v", err)
 	}
 
 	client := &http.Client{
@@ -97,7 +97,7 @@ func createOptimizedHTTPClient(httpConfig *S3HTTPConfig) *http.Client {
 		Timeout:   time.Duration(requestTimeout) * time.Second,
 	}
 
-	log.Printf("[S3 Storage] HTTP client configured: MaxIdleConns=%d, MaxIdleConnsPerHost=%d, MaxConnsPerHost=%d, ConnectTimeout=%ds, RequestTimeout=%ds",
+	logger.Infof("[S3 Storage] HTTP client configured: MaxIdleConns=%d, MaxIdleConnsPerHost=%d, MaxConnsPerHost=%d, ConnectTimeout=%ds, RequestTimeout=%ds",
 		maxIdleConns, maxIdleConnsPerHost, maxConnsPerHost, connectTimeout, requestTimeout)
 
 	return client
@@ -110,7 +110,7 @@ func NewS3Client(region, accessKey, secretKey, bucket, baseURL string, httpConfi
 	httpClient := createOptimizedHTTPClient(httpConfig)
 
 	if baseURL != "" {
-		log.Printf("[S3 Storage] Initializing S3-compatible storage: endpoint=%s, bucket=%s, region=%s", baseURL, bucket, region)
+		logger.Infof("[S3 Storage] Initializing S3-compatible storage: endpoint=%s, bucket=%s, region=%s", baseURL, bucket, region)
 		// For S3-compatible storage (MinIO, etc.), use a simplified config
 		// to avoid AWS-specific credential validation
 		s3Client = s3.New(s3.Options{
@@ -121,7 +121,7 @@ func NewS3Client(region, accessKey, secretKey, bucket, baseURL string, httpConfi
 			HTTPClient:   httpClient,
 		})
 	} else {
-		log.Printf("[S3 Storage] Initializing AWS S3 storage: bucket=%s, region=%s", bucket, region)
+		logger.Infof("[S3 Storage] Initializing AWS S3 storage: bucket=%s, region=%s", bucket, region)
 		// For standard AWS S3, use the full config loader
 		configOpts := []func(*config.LoadOptions) error{
 			config.WithRegion(region),
@@ -144,7 +144,7 @@ func NewS3Client(region, accessKey, secretKey, bucket, baseURL string, httpConfi
 		})
 	}
 
-	log.Printf("[S3 Storage] Client initialized successfully for bucket: %s", bucket)
+	logger.Infof("[S3 Storage] Client initialized successfully for bucket: %s", bucket)
 	return &S3Client{
 		client: s3Client,
 		bucket: bucket,
@@ -152,22 +152,22 @@ func NewS3Client(region, accessKey, secretKey, bucket, baseURL string, httpConfi
 }
 
 func (s *S3Client) GetObject(ctx context.Context, key string) ([]byte, error) {
-	log.Printf("[S3 Storage] Fetching object: bucket=%s, key=%s", s.bucket, key)
+	logger.Debugf("[S3 Storage] Fetching object: bucket=%s, key=%s", s.bucket, key)
 	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		log.Printf("[S3 Storage] Error fetching object: bucket=%s, key=%s, error=%v", s.bucket, key, err)
+		logger.Errorf("[S3 Storage] Error fetching object: bucket=%s, key=%s, error=%v", s.bucket, key, err)
 		return nil, err
 	}
 	defer result.Body.Close()
 
 	data, err := io.ReadAll(result.Body)
 	if err != nil {
-		log.Printf("[S3 Storage] Error reading object body: bucket=%s, key=%s, error=%v", s.bucket, key, err)
+		logger.Errorf("[S3 Storage] Error reading object body: bucket=%s, key=%s, error=%v", s.bucket, key, err)
 		return nil, err
 	}
-	log.Printf("[S3 Storage] Successfully fetched object: bucket=%s, key=%s, size=%d bytes", s.bucket, key, len(data))
+	logger.Debugf("[S3 Storage] Successfully fetched object: bucket=%s, key=%s, size=%d bytes", s.bucket, key, len(data))
 	return data, nil
 }

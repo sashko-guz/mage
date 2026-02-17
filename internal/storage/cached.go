@@ -2,11 +2,11 @@ package storage
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/sashko-guz/mage/internal/cache"
+	"github.com/sashko-guz/mage/internal/logger"
 )
 
 // cacheWriteTask represents a single cache write operation
@@ -68,7 +68,7 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 	// Layer 1: Check source memory cache first (if enabled)
 	if cs.sourceMemoryCache != nil {
 		if data, found := cs.sourceMemoryCache.Get(cacheKey); found {
-			log.Printf("[CachedStorage] Source memory cache HIT for key: %s", key)
+			logger.Debugf("[CachedStorage] Source memory cache HIT for key: %s", key)
 			return data, nil
 		}
 	}
@@ -76,12 +76,12 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 	// Layer 2: Check source disk cache (if enabled)
 	if cs.sourceDiskCache != nil {
 		if data, err := cs.sourceDiskCache.Get(cacheKey); err == nil {
-			log.Printf("[CachedStorage] Source disk cache HIT for key: %s", key)
+			logger.Debugf("[CachedStorage] Source disk cache HIT for key: %s", key)
 
 			// Populate source memory cache for next time
 			if cs.sourceMemoryCache != nil {
 				cs.sourceMemoryCache.Set(cacheKey, data, cs.sourceTTL)
-				log.Printf("[CachedStorage] Source promoted to memory cache: %s", key)
+				logger.Debugf("[CachedStorage] Source promoted to memory cache: %s", key)
 			}
 
 			return data, nil
@@ -89,7 +89,7 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 	}
 
 	// Layer 3: Fetch from underlying storage (S3, local, etc.)
-	log.Printf("[CachedStorage] Source cache miss, fetching from underlying storage: %s", key)
+	logger.Debugf("[CachedStorage] Source cache miss, fetching from underlying storage: %s", key)
 	data, err := cs.underlying.GetObject(ctx, key)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func (cs *CachedStorage) sourceWriter() {
 			}
 			if cs.sourceDiskCache != nil {
 				if err := cs.sourceDiskCache.Set(task.key, task.data); err != nil {
-					log.Printf("[CachedStorage] Error writing source to disk cache: %v", err)
+					logger.Errorf("[CachedStorage] Error writing source to disk cache: %v", err)
 				}
 			}
 		case <-cs.sourceWriteDone:
@@ -164,7 +164,7 @@ func (cs *CachedStorage) SetSourceAsync(cacheKey string, data []byte) {
 		// Queued successfully
 	default:
 		// Queue full - drop the write (image is in memory cache already)
-		log.Printf("[CachedStorage] Source write queue full, skipping async write for: %s", cacheKey)
+		logger.Warnf("[CachedStorage] Source write queue full, skipping async write for: %s", cacheKey)
 	}
 }
 
@@ -181,7 +181,7 @@ func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
 	// Layer 1: Check thumb memory cache first (if enabled)
 	if cs.thumbMemoryCache != nil {
 		if data, found := cs.thumbMemoryCache.Get(thumbnailKey); found {
-			log.Printf("[CachedStorage] Thumb memory cache HIT for key: %s", cacheKey)
+			logger.Debugf("[CachedStorage] Thumb memory cache HIT for key: %s", cacheKey)
 			return data, true, nil
 		}
 	}
@@ -189,12 +189,12 @@ func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
 	// Layer 2: Check thumb disk cache (if enabled)
 	if cs.thumbDiskCache != nil {
 		if data, err := cs.thumbDiskCache.Get(thumbnailKey); err == nil {
-			log.Printf("[CachedStorage] Thumb disk cache HIT for key: %s", cacheKey)
+			logger.Debugf("[CachedStorage] Thumb disk cache HIT for key: %s", cacheKey)
 
 			// Populate thumb memory cache for next time
 			if cs.thumbMemoryCache != nil {
 				cs.thumbMemoryCache.Set(thumbnailKey, data, cs.thumbTTL)
-				log.Printf("[CachedStorage] Thumb promoted to memory cache: %s", cacheKey)
+				logger.Debugf("[CachedStorage] Thumb promoted to memory cache: %s", cacheKey)
 			}
 
 			return data, true, nil
@@ -220,7 +220,7 @@ func (cs *CachedStorage) SetThumbnail(cacheKey string, data []byte) error {
 	}
 
 	// Async disk write happens separately via SetThumbnailAsync
-	log.Printf("[CachedStorage] Cached thumbnail (memory): %s", cacheKey)
+	logger.Debugf("[CachedStorage] Cached thumbnail (memory): %s", cacheKey)
 	return nil
 }
 
@@ -254,7 +254,7 @@ func (cs *CachedStorage) thumbWriter() {
 			}
 			if cs.thumbDiskCache != nil {
 				if err := cs.thumbDiskCache.Set(task.key, task.data); err != nil {
-					log.Printf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
+					logger.Errorf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
 				}
 			}
 		case <-cs.thumbWriteDone:
@@ -281,7 +281,7 @@ func (cs *CachedStorage) SetThumbnailAsync(cacheKey string, data []byte) {
 		// Queued successfully
 	default:
 		// Queue full - drop the write (thumbnail is in memory cache already)
-		log.Printf("[CachedStorage] Thumb write queue full, skipping async write for: %s", cacheKey)
+		logger.Warnf("[CachedStorage] Thumb write queue full, skipping async write for: %s", cacheKey)
 	}
 }
 
@@ -292,7 +292,7 @@ func (cs *CachedStorage) ClearCache() error {
 	}
 	if cs.sourceDiskCache != nil {
 		if err := cs.sourceDiskCache.Clear(); err != nil {
-			log.Printf("[CachedStorage] Error clearing source disk cache: %v", err)
+			logger.Errorf("[CachedStorage] Error clearing source disk cache: %v", err)
 			return err
 		}
 	}
@@ -301,7 +301,7 @@ func (cs *CachedStorage) ClearCache() error {
 	}
 	if cs.thumbDiskCache != nil {
 		if err := cs.thumbDiskCache.Clear(); err != nil {
-			log.Printf("[CachedStorage] Error clearing thumb disk cache: %v", err)
+			logger.Errorf("[CachedStorage] Error clearing thumb disk cache: %v", err)
 			return err
 		}
 	}

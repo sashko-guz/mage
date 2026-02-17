@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"strings"
 
+	"github.com/sashko-guz/mage/internal/logger"
 	"github.com/sashko-guz/mage/internal/operations"
 )
 
@@ -91,9 +91,7 @@ func (s *Signature) Verify(req *operations.Request) error {
 
 	// Compare provided signature with expected
 	if req.ProvidedSignature != expectedSignature {
-		// Log expected vs provided signature for debugging
-		// Note: In production, consider logging only in debug mode to avoid exposing secrets in logs
-		log.Printf("[Signature] Expected signature: %s, Provided signature: %s, Payload: %s", expectedSignature, req.ProvidedSignature, payloadToHash)
+		logger.Debugf("[Signature] Signature mismatch: expected=%s, provided=%s, payload=%s", expectedSignature, req.ProvidedSignature, payloadToHash)
 
 		return fmt.Errorf("invalid signature: got %s", req.ProvidedSignature)
 	}

@@ -21,9 +21,12 @@ Mage generates thumbnails on-the-fly, supports local/S3 storage backends, and in
 ```bash
 git clone https://github.com/sashko-guz/mage.git
 cd mage
+cp .env.example .env
 cp storage.local.example.json storage.json
 go run ./cmd/server
 ```
+
+You can configure runtime settings from `.env` (for example `LOG_LEVEL=error`).
 
 ## Documentation
 
