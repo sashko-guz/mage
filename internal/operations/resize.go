@@ -95,24 +95,36 @@ func (o *ResizeOperation) Apply(img *vips.Image) (*vips.Image, error) {
 }
 
 func (o *ResizeOperation) resizeHeightOnly(img *vips.Image, height int) (*vips.Image, error) {
-	// ThumbnailImage requires width as first param
-	// Use a large width value so height constraint determines the final size
-	maxWidth := 100000
-	err := img.ThumbnailImage(maxWidth, &vips.ThumbnailImageOptions{
-		Height: height,
-		Size:   vips.SizeDown,
-	})
-	if err != nil {
+	currentHeight := img.Height()
+	if currentHeight <= 0 {
+		return nil, fmt.Errorf("failed to resize by height: invalid source height %d", currentHeight)
+	}
+	if height == currentHeight {
+		return img, nil
+	}
+
+	scale := float64(height) / float64(currentHeight)
+	options := vips.DefaultResizeOptions()
+	options.Vscale = scale
+	if err := img.Resize(scale, options); err != nil {
 		return nil, fmt.Errorf("failed to resize by height: %w", err)
 	}
 	return img, nil
 }
 
 func (o *ResizeOperation) resizeWidthOnly(img *vips.Image, width int) (*vips.Image, error) {
-	err := img.ThumbnailImage(width, &vips.ThumbnailImageOptions{
-		Size: vips.SizeDown,
-	})
-	if err != nil {
+	currentWidth := img.Width()
+	if currentWidth <= 0 {
+		return nil, fmt.Errorf("failed to resize by width: invalid source width %d", currentWidth)
+	}
+	if width == currentWidth {
+		return img, nil
+	}
+
+	scale := float64(width) / float64(currentWidth)
+	options := vips.DefaultResizeOptions()
+	options.Vscale = scale
+	if err := img.Resize(scale, options); err != nil {
 		return nil, fmt.Errorf("failed to resize by width: %w", err)
 	}
 	return img, nil

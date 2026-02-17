@@ -67,8 +67,10 @@ func (r *Registry) QualityOp() *QualityOperation {
 
 // ApplyAll applies all operations in the request
 func (r *Registry) ApplyAll(imageData []byte, req *Request) ([]byte, string, error) {
-	// Load image
-	img, err := vips.NewImageFromBuffer(imageData, nil)
+	// Load image with EXIF-based autorotation to avoid rotated outputs.
+	loadOptions := vips.DefaultLoadOptions()
+	loadOptions.Autorotate = true
+	img, err := vips.NewImageFromBuffer(imageData, loadOptions)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load image: %w", err)
 	}
