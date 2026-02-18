@@ -34,12 +34,10 @@ type CachedStorage struct {
 
 	// Async write workers for sources
 	sourceWriteQueue chan cacheWriteTask
-	sourceWriteDone  chan struct{}
 	sourceWriteMu    sync.WaitGroup
 
 	// Async write workers for thumbnails
 	thumbWriteQueue chan cacheWriteTask
-	thumbWriteDone  chan struct{}
 	thumbWriteMu    sync.WaitGroup
 }
 
@@ -117,7 +115,6 @@ func (cs *CachedStorage) initSourceWorkers(numWorkers, queueSize int) {
 	}
 
 	cs.sourceWriteQueue = make(chan cacheWriteTask, queueSize)
-	cs.sourceWriteDone = make(chan struct{})
 
 	for i := 0; i < numWorkers; i++ {
 		cs.sourceWriteMu.Add(1)
@@ -140,8 +137,6 @@ func (cs *CachedStorage) sourceWriter() {
 					logger.Errorf("[CachedStorage] Error writing source to disk cache: %v", err)
 				}
 			}
-		case <-cs.sourceWriteDone:
-			return // Shutdown signal received
 		}
 	}
 }
@@ -234,7 +229,6 @@ func (cs *CachedStorage) initThumbWorkers(numWorkers, queueSize int) {
 	}
 
 	cs.thumbWriteQueue = make(chan cacheWriteTask, queueSize)
-	cs.thumbWriteDone = make(chan struct{})
 
 	for i := 0; i < numWorkers; i++ {
 		cs.thumbWriteMu.Add(1)
@@ -257,8 +251,6 @@ func (cs *CachedStorage) thumbWriter() {
 					logger.Errorf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
 				}
 			}
-		case <-cs.thumbWriteDone:
-			return // Shutdown signal received
 		}
 	}
 }
@@ -283,29 +275,6 @@ func (cs *CachedStorage) SetThumbnailAsync(cacheKey string, data []byte) {
 		// Queue full - drop the write (thumbnail is in memory cache already)
 		logger.Warnf("[CachedStorage] Thumb write queue full, skipping async write for: %s", cacheKey)
 	}
-}
-
-// ClearCache clears all cached entries (useful for testing or manual invalidation)
-func (cs *CachedStorage) ClearCache() error {
-	if cs.sourceMemoryCache != nil {
-		cs.sourceMemoryCache.Clear()
-	}
-	if cs.sourceDiskCache != nil {
-		if err := cs.sourceDiskCache.Clear(); err != nil {
-			logger.Errorf("[CachedStorage] Error clearing source disk cache: %v", err)
-			return err
-		}
-	}
-	if cs.thumbMemoryCache != nil {
-		cs.thumbMemoryCache.Clear()
-	}
-	if cs.thumbDiskCache != nil {
-		if err := cs.thumbDiskCache.Clear(); err != nil {
-			logger.Errorf("[CachedStorage] Error clearing thumb disk cache: %v", err)
-			return err
-		}
-	}
-	return nil
 }
 
 // Close releases cache resources and shuts down async workers

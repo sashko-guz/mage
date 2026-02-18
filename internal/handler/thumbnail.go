@@ -1,14 +1,12 @@
 package handler
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/sashko-guz/mage/internal/logger"
 	"github.com/sashko-guz/mage/internal/operations"
@@ -61,40 +59,21 @@ func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcess
 	}, nil
 }
 
-// Buffer pool for reducing allocations in encodeThumbnailBinary
-// Pre-allocate 256KB buffers which covers most thumbnail sizes
-var bufferPool = sync.Pool{
-	New: func() any {
-		// Pre-allocate 256KB buffers (covers most thumbnails)
-		return bytes.NewBuffer(make([]byte, 0, 256*1024))
-	},
-}
-
 // encodeThumbnailBinary encodes ThumbnailResult to binary format
 // Format: [4 bytes: content-type length][content-type][image data]
-// This avoids expensive JSON marshaling/unmarshaling of large binary data
-// Uses buffer pooling to reduce allocations and GC pressure
 func encodeThumbnailBinary(t *ThumbnailResult) []byte {
-	buf := bufferPool.Get().(*bytes.Buffer)
-	buf.Reset()               // Clear previous data
-	defer bufferPool.Put(buf) // Return to pool
+	ctLen := len(t.ContentType)
+	result := make([]byte, 4+ctLen+len(t.Data))
 
 	// Write content type length (4 bytes, big-endian)
-	ctLen := uint32(len(t.ContentType))
-	buf.WriteByte(byte(ctLen >> 24))
-	buf.WriteByte(byte(ctLen >> 16))
-	buf.WriteByte(byte(ctLen >> 8))
-	buf.WriteByte(byte(ctLen))
+	result[0] = byte(ctLen >> 24)
+	result[1] = byte(ctLen >> 16)
+	result[2] = byte(ctLen >> 8)
+	result[3] = byte(ctLen)
 
-	// Write content type
-	buf.WriteString(t.ContentType)
-
-	// Write image data
-	buf.Write(t.Data)
-
-	// Copy to new slice since buffer will be reused
-	result := make([]byte, buf.Len())
-	copy(result, buf.Bytes())
+	// Write content type and image data
+	copy(result[4:], t.ContentType)
+	copy(result[4+ctLen:], t.Data)
 
 	return result
 }
@@ -294,21 +273,17 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Cache the thumbnail result if thumbnail caching is enabled
-	// SetThumbnail: Memory cache synchronously (fast, user sees response immediately)
-	// SetThumbnailAsync: Disk cache asynchronously (background, doesn't block response)
+	// Encode once, reuse for both memory (sync) and disk (async) cache writes
+	var binaryData []byte
 	if h.cachingEnabled && err == nil && result != nil {
 		cachedStore := store.(*storage.CachedStorage)
 
-		// Only cache if thumbnails caching is actually enabled
 		if cachedStore.ThumbsCacheEnabled() {
-			thumbnail := result.(*ThumbnailResult)
-			// Encode to binary format (avoids JSON overhead)
-			binaryData := encodeThumbnailBinary(thumbnail)
+			binaryData = encodeThumbnailBinary(result.(*ThumbnailResult))
 
 			// Store in memory cache synchronously (fast)
 			if cacheErr := cachedStore.SetThumbnail(cacheKey, binaryData); cacheErr != nil {
 				logger.Warnf("[ThumbnailHandler] Error caching thumbnail result: %v", cacheErr)
-				// Don't fail if caching fails, just continue
 			}
 		}
 	}
@@ -338,13 +313,8 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logger.Debugf("[ThumbnailHandler] Successfully generated thumbnail for: %s", req.Path)
 
 	// Queue asynchronous disk cache write (happens in background after response is sent)
-	if h.cachingEnabled && result != nil {
+	if binaryData != nil {
 		cachedStore := store.(*storage.CachedStorage)
-		if cachedStore.ThumbsCacheEnabled() {
-			thumbnail := result.(*ThumbnailResult)
-			binaryData := encodeThumbnailBinary(thumbnail)
-			// This is non-blocking and returns immediately
-			cachedStore.SetThumbnailAsync(cacheKey, binaryData)
-		}
+		cachedStore.SetThumbnailAsync(cacheKey, binaryData)
 	}
 }

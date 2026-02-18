@@ -10,7 +10,6 @@ import (
 // PercentCropOperation handles pcrop(x1,y1,x2,y2) filter where coordinates are 0-100 percentages
 type PercentCropOperation struct {
 	X1, Y1, X2, Y2 int // Values 0-100 representing percentages
-	enabled        bool
 }
 
 func NewPercentCropOperation() *PercentCropOperation {
@@ -48,30 +47,17 @@ func (o *PercentCropOperation) Parse(filter string) (bool, error) {
 		}
 
 		num := 0
-		negative := false
-		for j, ch := range part {
-			if j == 0 && ch == '-' {
-				negative = true
-				continue
-			}
+		for _, ch := range part {
 			if ch < '0' || ch > '9' {
-				return false, fmt.Errorf("pcrop coordinate %d must be a number, got: %s", i+1, part)
+				return false, fmt.Errorf("pcrop coordinate %d must be a positive integer, got: %s", i+1, part)
 			}
 			num = num*10 + int(ch-'0')
 		}
 
-		if negative {
-			num = -num
-		}
 		coords[i] = num
 	}
 
 	o.X1, o.Y1, o.X2, o.Y2 = coords[0], coords[1], coords[2], coords[3]
-
-	// Validate percentages are in range 0-100
-	if o.X1 < 0 || o.Y1 < 0 || o.X2 < 0 || o.Y2 < 0 {
-		return false, fmt.Errorf("invalid pcrop coordinates: percentages must be >= 0 (got pcrop(%d,%d,%d,%d))", o.X1, o.Y1, o.X2, o.Y2)
-	}
 
 	if o.X1 > 100 || o.Y1 > 100 || o.X2 > 100 || o.Y2 > 100 {
 		return false, fmt.Errorf("invalid pcrop coordinates: percentages must be <= 100 (got pcrop(%d,%d,%d,%d))", o.X1, o.Y1, o.X2, o.Y2)
@@ -85,15 +71,10 @@ func (o *PercentCropOperation) Parse(filter string) (bool, error) {
 		return false, fmt.Errorf("invalid pcrop coordinates: y2 must be greater than y1 (got pcrop(%d,%d,%d,%d))", o.X1, o.Y1, o.X2, o.Y2)
 	}
 
-	o.enabled = true
 	return true, nil
 }
 
 func (o *PercentCropOperation) Apply(img *vips.Image) (*vips.Image, error) {
-	if !o.enabled {
-		return img, nil
-	}
-
 	imgWidth := img.Width()
 	imgHeight := img.Height()
 

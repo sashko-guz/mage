@@ -109,37 +109,6 @@ func (mc *MemoryCache) Wait() {
 	mc.cache.Wait()
 }
 
-// GetMetrics returns cache performance metrics
-func (mc *MemoryCache) GetMetrics() *ristretto.Metrics {
-	return mc.cache.Metrics
-}
-
-// GetStats returns formatted cache statistics
-func (mc *MemoryCache) GetStats() map[string]any {
-	metrics := mc.cache.Metrics
-
-	hits := metrics.Hits()
-	misses := metrics.Misses()
-	total := hits + misses
-
-	var hitRatio float64
-	if total > 0 {
-		hitRatio = float64(hits) / float64(total)
-	}
-
-	return map[string]any{
-		"hits":         hits,
-		"misses":       misses,
-		"total":        total,
-		"hit_ratio":    hitRatio,
-		"keys_added":   metrics.KeysAdded(),
-		"keys_evicted": metrics.KeysEvicted(),
-		"keys_updated": metrics.KeysUpdated(),
-		"cost_added":   metrics.CostAdded(),
-		"cost_evicted": metrics.CostEvicted(),
-	}
-}
-
 // Close closes the cache and releases resources
 func (mc *MemoryCache) Close() {
 	mc.cache.Close()

@@ -10,7 +10,6 @@ import (
 // CropOperation handles crop(x1,y1,x2,y2) filter
 type CropOperation struct {
 	X1, Y1, X2, Y2 int
-	enabled        bool
 }
 
 func NewCropOperation() *CropOperation {
@@ -48,29 +47,17 @@ func (o *CropOperation) Parse(filter string) (bool, error) {
 		}
 
 		num := 0
-		negative := false
-		for j, ch := range part {
-			if j == 0 && ch == '-' {
-				negative = true
-				continue
-			}
+		for _, ch := range part {
 			if ch < '0' || ch > '9' {
-				return false, fmt.Errorf("crop coordinate %d must be a number, got: %s", i+1, part)
+				return false, fmt.Errorf("crop coordinate %d must be a positive integer, got: %s", i+1, part)
 			}
 			num = num*10 + int(ch-'0')
 		}
 
-		if negative {
-			num = -num
-		}
 		coords[i] = num
 	}
 
 	o.X1, o.Y1, o.X2, o.Y2 = coords[0], coords[1], coords[2], coords[3]
-
-	if o.X1 < 0 || o.Y1 < 0 || o.X2 < 0 || o.Y2 < 0 {
-		return false, fmt.Errorf("invalid crop coordinates: negative values not allowed (got crop(%d,%d,%d,%d))", o.X1, o.Y1, o.X2, o.Y2)
-	}
 
 	if o.X2 <= o.X1 {
 		return false, fmt.Errorf("invalid crop coordinates: x2 must be greater than x1 (got crop(%d,%d,%d,%d))", o.X1, o.Y1, o.X2, o.Y2)
@@ -86,15 +73,10 @@ func (o *CropOperation) Parse(filter string) (bool, error) {
 		return false, fmt.Errorf("invalid crop coordinates: crop area cannot be zero-sized (got %dx%d)", cropWidth, cropHeight)
 	}
 
-	o.enabled = true
 	return true, nil
 }
 
 func (o *CropOperation) Apply(img *vips.Image) (*vips.Image, error) {
-	if !o.enabled {
-		return img, nil
-	}
-
 	cropLeft := o.X1
 	cropTop := o.Y1
 	cropWidth := o.X2 - o.X1

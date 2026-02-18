@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -30,7 +28,7 @@ func main() {
 }
 
 func run() error {
-	cfg := loadConfig()
+	cfg := config.Load()
 
 	log.Printf("[Server] Starting…")
 	log.Printf("[Server] Log level: %s", logger.CurrentLevelString())
@@ -60,10 +58,6 @@ func setupLogging() {
 	logger.SetOutput(os.Stderr)
 	logger.SetFlags(log.LstdFlags | log.Lshortfile)
 	logger.InitFromEnv()
-}
-
-func loadConfig() *config.Config {
-	return config.Load()
 }
 
 func configureVips() *vips.Config {
@@ -116,12 +110,6 @@ func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) 
 		WriteTimeout:      cfg.WriteTimeout,      // Time to write response (generous for large images)
 		IdleTimeout:       cfg.IdleTimeout,       // Keep-alive timeout for idle connections
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,    // Max header size (prevent header-based attacks)
-
-		// Connection context for tracking/metrics (can be extended later)
-		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			// Future: Add connection tracking, request IDs, or custom metrics here
-			return ctx
-		},
 	}
 
 	logger.Infof("[Server] HTTP server configured:")

@@ -436,23 +436,6 @@ func (dc *DiskCache) loadIndexFromDisk() {
 		totalScanned, deletedCount, dc.lru.Len(), formatBytes(dc.currentSize.Load()))
 }
 
-// CacheStats returns information about cache usage.
-func (dc *DiskCache) CacheStats() (count int, totalSize int64, err error) {
-	dc.mu.Lock()
-	defer dc.mu.Unlock()
-
-	for _, key := range dc.lru.Keys() {
-		entry, ok := dc.lru.Peek(key)
-		if !ok || entry == nil {
-			continue
-		}
-		count++
-		totalSize += entry.size
-	}
-
-	return count, totalSize, nil
-}
-
 func (dc *DiskCache) initLRU() {
 	lruIndex, err := simplelru.NewLRU[string, *cacheEntry](dc.MaxItems, func(_ string, entry *cacheEntry) {
 		if entry == nil {

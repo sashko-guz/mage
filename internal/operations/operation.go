@@ -13,16 +13,6 @@ type Request struct {
 	Operations []Operation
 }
 
-// GetSize returns width and height from the ResizeOperation if present
-func (r *Request) GetSize() (width, height *int) {
-	for _, op := range r.Operations {
-		if resizeOp, ok := op.(*ResizeOperation); ok {
-			return resizeOp.Width, resizeOp.Height
-		}
-	}
-	return nil, nil
-}
-
 // Operation defines both parsing and image processing for a filter
 type Operation interface {
 	// Name returns the operation identifier

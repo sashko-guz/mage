@@ -65,7 +65,7 @@ func (r *Registry) QualityOp() *QualityOperation {
 	return r.qualityOp
 }
 
-func (r *Registry) prepareImage(imageData []byte) (*vips.Image, error) {
+func prepareImage(imageData []byte) (*vips.Image, error) {
 	// Load image, then apply EXIF-based autorotation.
 	// Autorotate cannot be set in load options because not all loaders support it (e.g. WebP).
 	img, err := vips.NewImageFromBuffer(imageData, vips.DefaultLoadOptions())
@@ -81,9 +81,9 @@ func (r *Registry) prepareImage(imageData []byte) (*vips.Image, error) {
 	return img, nil
 }
 
-// ApplyAll applies all operations in the request
-func (r *Registry) ApplyAll(imageData []byte, req *Request) ([]byte, string, error) {
-	img, err := r.prepareImage(imageData)
+// ApplyAll applies all operations in the request to the image data
+func ApplyAll(imageData []byte, req *Request) ([]byte, string, error) {
+	img, err := prepareImage(imageData)
 	if err != nil {
 		return nil, "", err
 	}
@@ -128,10 +128,10 @@ func (r *Registry) ApplyAll(imageData []byte, req *Request) ([]byte, string, err
 
 	// Use extracted format and quality for export
 	if formatOp == nil {
-		formatOp = r.formatOp // Fallback to default (shouldn't happen)
+		formatOp = NewFormatOperation()
 	}
 	if qualityOp == nil {
-		qualityOp = r.qualityOp // Fallback to default (shouldn't happen)
+		qualityOp = NewQualityOperation()
 	}
 
 	return formatOp.Export(img, qualityOp.Quality)

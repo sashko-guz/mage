@@ -11,7 +11,6 @@ import (
 type FitOperation struct {
 	Mode      string
 	FillColor string
-	enabled   bool
 }
 
 func NewFitOperation() *FitOperation {
@@ -63,7 +62,6 @@ func (o *FitOperation) Parse(filter string) (bool, error) {
 		}
 	}
 
-	o.enabled = true
 	return true, nil
 }
 
