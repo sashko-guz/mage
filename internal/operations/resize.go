@@ -7,6 +7,8 @@ import (
 	"github.com/cshum/vipsgen/vips"
 )
 
+const maxResizeDimension = 10_000
+
 // ResizeOperation handles WxH size format and resizing
 type ResizeOperation struct {
 	Width     *int
@@ -72,6 +74,18 @@ func (o *ResizeOperation) Parse(filter string) (bool, error) {
 
 func (o *ResizeOperation) IsSizeFormat(str string) bool {
 	return strings.IndexByte(str, 'x') != -1
+}
+
+func (o *ResizeOperation) Validate() error {
+	if o.Width != nil && *o.Width > maxResizeDimension {
+		return fmt.Errorf("invalid width: %d exceeds maximum allowed value %d", *o.Width, maxResizeDimension)
+	}
+
+	if o.Height != nil && *o.Height > maxResizeDimension {
+		return fmt.Errorf("invalid height: %d exceeds maximum allowed value %d", *o.Height, maxResizeDimension)
+	}
+
+	return nil
 }
 
 func (o *ResizeOperation) Apply(img *vips.Image) (*vips.Image, error) {

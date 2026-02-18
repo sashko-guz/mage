@@ -10,6 +10,7 @@
 
 - `{signature}` - Optional HMAC-SHA256 signature
 - `{width}x{height}` - Required size (example: `200x350`)
+	- each dimension must be `1..10000`
 - `{filters}` - Optional filter list split by `;`
 - `{path}` - Source image path in storage
 
@@ -29,6 +30,13 @@
 
 - Modes: `cover` (default), `fill`
 - Fill colors for `fill`: `black`, `white`, `transparent` (PNG only)
+
+### Resize (`{width}x{height}`)
+
+Validation:
+
+- width and height must be positive integers when provided
+- maximum value for width or height is `10000`
 
 ### `crop(x1,y1,x2,y2)`
 

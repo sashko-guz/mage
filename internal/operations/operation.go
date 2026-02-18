@@ -30,3 +30,9 @@ type Operation interface {
 	// This allows multiple instances of the same operation type
 	Clone() Operation
 }
+
+// Validatable is an optional interface for operations that need additional validation.
+// It is checked by the parser after operations are assembled.
+type Validatable interface {
+	Validate() error
+}

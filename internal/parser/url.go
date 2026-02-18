@@ -141,6 +141,11 @@ func ParseURL(path string) (*operations.Request, error) {
 	// Apply fit mode from FitOperation to ResizeOperation if present
 	applyFitModeToResize(req)
 
+	// Run per-operation validation hooks
+	if err := validateOperations(req.Operations); err != nil {
+		return nil, err
+	}
+
 	// Validate transparent fill color only works with PNG format
 	if err := validateTransparentFill(req); err != nil {
 		return nil, err
@@ -263,6 +268,18 @@ func validateCropExclusivity(req *operations.Request) error {
 
 	if hasCrop && hasPcrop {
 		return fmt.Errorf("cannot use both crop and pcrop operations in the same request (use either crop or pcrop, not both)")
+	}
+
+	return nil
+}
+
+func validateOperations(ops []operations.Operation) error {
+	for _, op := range ops {
+		if validatable, ok := op.(operations.Validatable); ok {
+			if err := validatable.Validate(); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
