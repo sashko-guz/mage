@@ -65,14 +65,27 @@ func (r *Registry) QualityOp() *QualityOperation {
 	return r.qualityOp
 }
 
+func (r *Registry) prepareImage(imageData []byte) (*vips.Image, error) {
+	// Load image, then apply EXIF-based autorotation.
+	// Autorotate cannot be set in load options because not all loaders support it (e.g. WebP).
+	img, err := vips.NewImageFromBuffer(imageData, vips.DefaultLoadOptions())
+	if err != nil {
+		return nil, fmt.Errorf("failed to load image: %w", err)
+	}
+
+	if err := img.Autorot(&vips.AutorotOptions{}); err != nil {
+		img.Close()
+		return nil, fmt.Errorf("failed to autorotate image: %w", err)
+	}
+
+	return img, nil
+}
+
 // ApplyAll applies all operations in the request
 func (r *Registry) ApplyAll(imageData []byte, req *Request) ([]byte, string, error) {
-	// Load image with EXIF-based autorotation to avoid rotated outputs.
-	loadOptions := vips.DefaultLoadOptions()
-	loadOptions.Autorotate = true
-	img, err := vips.NewImageFromBuffer(imageData, loadOptions)
+	img, err := r.prepareImage(imageData)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to load image: %w", err)
+		return nil, "", err
 	}
 	defer img.Close()
 

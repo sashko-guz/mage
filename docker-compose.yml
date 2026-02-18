@@ -11,6 +11,8 @@ services:
       - VIPS_WARNING=0
       - STORAGE_CONFIG_PATH=/app/storage.docker.json
     volumes:
+      # Mount .env file for environment variables
+      - ./.env:/app/.env:ro
       # Mount storage configuration
       - ./storage.docker.json:/app/storage.docker.json:ro
       # Mount local storage data (portable relative paths)
