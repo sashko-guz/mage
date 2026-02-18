@@ -216,7 +216,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Parse URL and process request
 	// Parse URL path: /thumbs/[{signature}/]{size}/[filters:{filters}/]{path}
-	req, err := parser.ParseURL(r.URL.Path, "")
+	req, err := parser.ParseURL(r.URL.Path)
 	if err != nil {
 		logger.Warnf("[ThumbnailHandler] Error parsing URL: %v (url=%s)", err, r.URL.String())
 		http.Error(w, fmt.Sprintf("Invalid URL format: %v (url=%s)", err, r.URL.String()), http.StatusBadRequest)

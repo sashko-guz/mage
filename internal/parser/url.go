@@ -30,11 +30,11 @@ func init() {
 // Operation Rules:
 //   - Only ONE operation of each type is allowed per request
 //   - Default values are automatically applied for missing operations:
-//     * format: detected from file extension, fallback to "jpeg"
-//     * quality: 75
-//     * resize: fit="cover", fillColor="white"
-//   - crop and fit operations are optional
-func ParseURL(path string, secretKey string) (*operations.Request, error) {
+//     1. format: detected from file extension, fallback to "jpeg"
+//     2. quality: 75
+//     3. resize: fit="cover", fillColor="white"
+//     4. crop and fit operations are optional
+func ParseURL(path string) (*operations.Request, error) {
 	// Remove leading slash
 	path = strings.TrimPrefix(path, "/")
 
