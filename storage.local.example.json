@@ -1,6 +1,6 @@
 {
   "driver": "local",
-  "root": "/var/www/uploads",
+  "root": "./.data",
   "signature_secret": "your-secret-key-here",
   "cache": {
     "sources": {
@@ -15,7 +15,7 @@
         "ttl_seconds": 300,
         "max_size_mb": 2048,
         "max_items": 131072,
-        "dir": "/var/cache/mage/sources",
+        "dir": "./.cache/sources",
         "clear_on_startup": false,
         "async_write": {
           "enabled": true,
@@ -36,7 +36,7 @@
         "ttl_seconds": 300,
         "max_size_mb": 10240,
         "max_items": 655360,
-        "dir": "/var/cache/mage/thumbs",
+        "dir": "./.cache/thumbs",
         "clear_on_startup": false,
         "async_write": {
           "enabled": true,
