@@ -146,11 +146,6 @@ func ParseURL(path string) (*operations.Request, error) {
 		return nil, err
 	}
 
-	// Validate transparent fill color only works with PNG format
-	if err := validateTransparentFill(req); err != nil {
-		return nil, err
-	}
-
 	// Validate crop and pcrop are not used together
 	if err := validateCropExclusivity(req); err != nil {
 		return nil, err
@@ -208,48 +203,30 @@ func hasOperation(req *operations.Request, name string) bool {
 func applyFitModeToResize(req *operations.Request) {
 	var resizeOp *operations.ResizeOperation
 	var fitOp *operations.FitOperation
+	var formatOp *operations.FormatOperation
 
-	// Find resize and fit operations
+	// Find resize, fit, and format operations
 	for _, op := range req.Operations {
 		switch v := op.(type) {
 		case *operations.ResizeOperation:
 			resizeOp = v
 		case *operations.FitOperation:
 			fitOp = v
-		}
-	}
-
-	// If both exist, apply fit mode and fill color to resize
-	if resizeOp != nil && fitOp != nil {
-		resizeOp.Fit = fitOp.Mode
-		resizeOp.FillColor = fitOp.FillColor
-	}
-}
-
-// validateTransparentFill checks that transparent fill color is only used with PNG format
-func validateTransparentFill(req *operations.Request) error {
-	var resizeOp *operations.ResizeOperation
-	var formatOp *operations.FormatOperation
-
-	// Find resize and format operations
-	for _, op := range req.Operations {
-		switch v := op.(type) {
-		case *operations.ResizeOperation:
-			resizeOp = v
 		case *operations.FormatOperation:
 			formatOp = v
 		}
 	}
 
-	// Check if transparent fill is used
-	if resizeOp != nil && resizeOp.FillColor == "transparent" {
-		// Transparent requires PNG format
-		if formatOp == nil || formatOp.Format != "png" {
-			return fmt.Errorf("transparent fill color requires PNG format (use filters:format(png))")
-		}
+	// If both resize and fit exist, apply fit mode and fill color to resize
+	if resizeOp != nil && fitOp != nil {
+		resizeOp.Fit = fitOp.Mode
+		resizeOp.FillColor = fitOp.FillColor
 	}
 
-	return nil
+	// If fit and format exist, set format on fit for validation
+	if fitOp != nil && formatOp != nil {
+		fitOp.Format = formatOp.Format
+	}
 }
 
 // validateCropExclusivity checks that crop and pcrop operations are not used together

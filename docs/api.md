@@ -29,7 +29,7 @@
 ### `fit(mode[,color])`
 
 - Modes: `cover` (default), `fill`
-- Fill colors for `fill`: `black`, `white`, `transparent` (PNG only)
+- Fill colors for `fill`: `black`, `white`, `transparent` (PNG and WebP)
 
 ### Resize (`{width}x{height}`)
 

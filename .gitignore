@@ -16,7 +16,6 @@ go.work
 
 # Project related files
 storage.json
-.cache
 
 # MacOS specific files
 .DS_Store

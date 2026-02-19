@@ -182,9 +182,9 @@ func (o *ResizeOperation) resizeFill(img *vips.Image, targetWidth, targetHeight 
 	left := (targetWidth - newWidth) / 2
 	top := (targetHeight - newHeight) / 2
 
-	// Handle transparent mode - only works with PNG format
+	// Handle transparent mode - works with PNG and WebP formats
 	if o.FillColor == "transparent" {
-		// Use transparent background (RGBA)
+		// Use transparent background (RGBA with alpha channel)
 		err = img.Embed(left, top, targetWidth, targetHeight, &vips.EmbedOptions{
 			Extend:     vips.ExtendBackground,
 			Background: []float64{0, 0, 0, 0},
@@ -195,13 +195,13 @@ func (o *ResizeOperation) resizeFill(img *vips.Image, targetWidth, targetHeight 
 		return img, nil
 	}
 
-	// Determine background color for non-transparent fills
+	// Determine background color for non-transparent fills (RGBA format)
 	var bgColor []float64
 	switch o.FillColor {
 	case "black":
-		bgColor = []float64{0, 0, 0}
+		bgColor = []float64{0, 0, 0, 255}
 	default: // "white"
-		bgColor = []float64{255, 255, 255}
+		bgColor = []float64{255, 255, 255, 255}
 	}
 
 	// Embed the image in a canvas with the target dimensions

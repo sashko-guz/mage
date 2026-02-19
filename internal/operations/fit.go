@@ -11,6 +11,7 @@ import (
 type FitOperation struct {
 	Mode      string
 	FillColor string
+	Format    string // Set during validation to check transparent compatibility
 }
 
 func NewFitOperation() *FitOperation {
@@ -69,4 +70,15 @@ func (o *FitOperation) Apply(img *vips.Image) (*vips.Image, error) {
 	// Fit is applied by modifying ResizeOperation behavior
 	// This operation just stores the preference
 	return img, nil
+}
+
+// Validate checks that transparent fill color is only used with PNG or WebP formats
+func (o *FitOperation) Validate() error {
+	if o.FillColor == "transparent" {
+		// Transparent requires PNG or WebP format
+		if o.Format != "png" && o.Format != "webp" {
+			return fmt.Errorf("transparent fill color requires PNG or WebP format (use filters:format(png) or filters:format(webp))")
+		}
+	}
+	return nil
 }
