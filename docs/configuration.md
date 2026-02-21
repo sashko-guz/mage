@@ -11,6 +11,9 @@
 - `HTTP_WRITE_TIMEOUT_SECONDS` - Time to write response (default: `30`)
 - `HTTP_IDLE_TIMEOUT_SECONDS` - Keep-alive idle timeout (default: `120`)
 - `HTTP_MAX_HEADER_BYTES` - Maximum request header size in bytes (default: `1048576`)
+- `MAX_RESIZE_WIDTH` - Maximum allowed resize width in pixels (default: `5120`)
+- `MAX_RESIZE_HEIGHT` - Maximum allowed resize height in pixels (default: `5120`)
+- `MAX_RESIZE_RESOLUTION` - Maximum allowed total pixel area (width × height) (default: `26214400`, i.e. 5120²)
 
 ## Storage Configuration
 

@@ -7,20 +7,25 @@ import (
 	"github.com/cshum/vipsgen/vips"
 )
 
-const maxResizeDimension = 10_000
-
 // ResizeOperation handles WxH size format and resizing
 type ResizeOperation struct {
 	Width     *int
 	Height    *int
 	Fit       string // "cover" or "fill"
 	FillColor string // Color for fill mode (default "white")
+
+	maxWidth      int
+	maxHeight     int
+	maxResolution int
 }
 
-func NewResizeOperation() *ResizeOperation {
+func NewResizeOperation(maxWidth, maxHeight, maxResolution int) *ResizeOperation {
 	return &ResizeOperation{
-		Fit:       "cover", // Default fit mode
-		FillColor: "white", // Default fill color
+		Fit:           "cover",
+		FillColor:     "white",
+		maxWidth:      maxWidth,
+		maxHeight:     maxHeight,
+		maxResolution: maxResolution,
 	}
 }
 
@@ -29,7 +34,7 @@ func (o *ResizeOperation) Name() string {
 }
 
 func (o *ResizeOperation) Clone() Operation {
-	return NewResizeOperation()
+	return NewResizeOperation(o.maxWidth, o.maxHeight, o.maxResolution)
 }
 
 // ParseSize parses size string like "200x300", "200x", "x300", or "x"
@@ -77,12 +82,18 @@ func (o *ResizeOperation) IsSizeFormat(str string) bool {
 }
 
 func (o *ResizeOperation) Validate() error {
-	if o.Width != nil && *o.Width > maxResizeDimension {
-		return fmt.Errorf("invalid width: %d exceeds maximum allowed value %d", *o.Width, maxResizeDimension)
+	if o.Width != nil && *o.Width > o.maxWidth {
+		return fmt.Errorf("invalid width: %d exceeds maximum allowed value %d", *o.Width, o.maxWidth)
 	}
 
-	if o.Height != nil && *o.Height > maxResizeDimension {
-		return fmt.Errorf("invalid height: %d exceeds maximum allowed value %d", *o.Height, maxResizeDimension)
+	if o.Height != nil && *o.Height > o.maxHeight {
+		return fmt.Errorf("invalid height: %d exceeds maximum allowed value %d", *o.Height, o.maxHeight)
+	}
+
+	if o.Width != nil && o.Height != nil {
+		if area := *o.Width * *o.Height; area > o.maxResolution {
+			return fmt.Errorf("invalid dimensions: %dx%d (%d px) exceeds maximum resolution %d px", *o.Width, *o.Height, area, o.maxResolution)
+		}
 	}
 
 	return nil

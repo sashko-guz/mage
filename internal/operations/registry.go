@@ -15,9 +15,9 @@ type Registry struct {
 }
 
 // NewRegistry creates a new operation registry with all operations registered
-func NewRegistry() *Registry {
+func NewRegistry(maxWidth, maxHeight, maxResolution int) *Registry {
 	r := &Registry{
-		resizeOp:  NewResizeOperation(),
+		resizeOp:  NewResizeOperation(maxWidth, maxHeight, maxResolution),
 		formatOp:  NewFormatOperation(),
 		qualityOp: NewQualityOperation(),
 	}

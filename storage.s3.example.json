@@ -25,7 +25,7 @@
       "disk": {
         "enabled": true,
         "ttl_seconds": 1800,
-        "max_size_mb": 5120,
+        "max_size_mb": 10240,
         "max_items": 327680,
         "dir": "/var/cache/mage/sources",
         "clear_on_startup": false,

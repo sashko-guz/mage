@@ -8,13 +8,14 @@ import (
 )
 
 var (
-	// Global operation registry - initialized once at startup
+	// Global operation registry - initialized once at startup via Init
 	operationRegistry *operations.Registry
 )
 
-// init registers all available operations
-func init() {
-	operationRegistry = operations.NewRegistry()
+// Init initializes the parser with resize dimension limits from config.
+// Must be called once at startup before any ParseURL calls.
+func Init(maxWidth, maxHeight, maxResolution int) {
+	operationRegistry = operations.NewRegistry(maxWidth, maxHeight, maxResolution)
 }
 
 // ParseURL parses a URL path and returns a Request with parsed operations

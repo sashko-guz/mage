@@ -13,6 +13,7 @@ import (
 	"github.com/sashko-guz/mage/internal/config"
 	"github.com/sashko-guz/mage/internal/handler"
 	"github.com/sashko-guz/mage/internal/logger"
+	"github.com/sashko-guz/mage/internal/parser"
 	"github.com/sashko-guz/mage/internal/processor"
 	"github.com/sashko-guz/mage/internal/storage"
 )
@@ -30,9 +31,13 @@ func main() {
 func run() error {
 	cfg := config.Load()
 
+	parser.Init(cfg.MaxResizeWidth, cfg.MaxResizeHeight, cfg.MaxResizeResolution)
+
 	log.Printf("[Server] Starting…")
 	log.Printf("[Server] Log level: %s", logger.CurrentLevelString())
 	log.Printf("[Server] Storage config loaded from: %s", cfg.StorageConfigPath)
+	log.Printf("[Server] Resize limits: max width=%d px, max height=%d px, max resolution=%d px",
+		cfg.MaxResizeWidth, cfg.MaxResizeHeight, cfg.MaxResizeResolution)
 
 	vipsCfg := configureVips()
 	vips.Startup(vipsCfg)
