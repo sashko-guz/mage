@@ -3,7 +3,7 @@
 ## URL Format
 
 ```text
-/thumbs/[{signature}/]{width}x{height}/[filters:{filters}/]{path}
+/thumbs/[{signature}/]{width}x{height}/[filters:{filters}/]{path}[/as/{alias.ext}]
 ```
 
 ### Components
@@ -13,13 +13,15 @@
 	- each dimension must be `1..10000`
 - `{filters}` - Optional filter list split by `;`
 - `{path}` - Source image path in storage
+- `{alias.ext}` - Optional output alias suffix (`/as/{alias.ext}`)
 
 ## Available Filters
 
 ### `format(format)`
 
 - Supported: `jpeg`, `png`, `webp`, `avif`
-- Default: from extension, fallback `jpeg`
+- Default: alias extension when `/as/{alias.ext}` is present, otherwise source path extension, fallback `jpeg`
+- If both alias extension and explicit `format(...)` filter are present, they must match
 
 ### `quality(level)`
 
@@ -80,14 +82,26 @@ With signature:
 /thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/path/to/image.jpg
 ```
 
+With alias:
+
+```text
+/thumbs/200x350/path/to/image.jpg/as/card.avif
+```
+
+With signature and alias:
+
+```text
+/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(avif);quality(88)/path/to/image.jpg/as/card.avif
+```
+
 ## Signature Generation
 
-When `signature_secret` is configured, signature is required.
+When `SIGNATURE_SECRET` is configured, signature is required.
 
 Payload format:
 
 ```text
-/{size}/[filters:{filters}/]{path}
+/{size}/[filters:{filters}/]{path}[/as/{alias.ext}]
 ```
 
 The signature is first 16 hex chars of HMAC-SHA256 over payload.

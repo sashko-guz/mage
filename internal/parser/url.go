@@ -21,17 +21,18 @@ func Init(maxWidth, maxHeight, maxResolution int) {
 // ParseURL parses a URL path and returns a Request with parsed operations
 //
 // URL Format:
-//   - With signature: /thumbs/{signature}/{size}/[filters:{filters}/]{path}
-//   - Without signature: /thumbs/{size}/[filters:{filters}/]{path}
+//   - With signature: /thumbs/{signature}/{size}/[filters:{filters}/]{path}[/as/{alias.ext}]
+//   - Without signature: /thumbs/{size}/[filters:{filters}/]{path}[/as/{alias.ext}]
 //
 // Examples:
 //   - /thumbs/200x350/filters:format(webp);quality(88)/image.jpg
 //   - /thumbs/abc123/200x300/filters:crop(10,10,500,500);fit(cover)/image.jpg
+//   - /thumbs/200x350/path/to/source.jpg/as/preview.avif
 //
 // Operation Rules:
 //   - Only ONE operation of each type is allowed per request
 //   - Default values are automatically applied for missing operations:
-//     1. format: detected from file extension, fallback to "jpeg"
+//     1. format: detected from alias extension first (if present), then from source path extension, fallback to "jpeg"
 //     2. quality: 75
 //     3. resize: fit="cover", fillColor="white"
 //     4. crop and fit operations are optional
@@ -42,7 +43,7 @@ func ParseURL(path string) (*operations.Request, error) {
 	// Split into parts
 	parts := strings.SplitN(path, "/", 5)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("invalid path format, expected /thumbs/[{signature}/]{size}/[filters:{filters}/]{path}")
+		return nil, fmt.Errorf("invalid path format, expected /thumbs/[{signature}/]{size}/[filters:{filters}/]{path}[/as/{alias.ext}]")
 	}
 
 	// Check prefix
@@ -77,7 +78,7 @@ func ParseURL(path string) (*operations.Request, error) {
 	if !resizePrototype.IsSizeFormat(parts[1]) {
 		// Has signature
 		if len(parts) < 4 {
-			return nil, fmt.Errorf("invalid path format, expected /thumbs/{signature}/{size}/[filters:{filters}/]{path}")
+			return nil, fmt.Errorf("invalid path format, expected /thumbs/{signature}/{size}/[filters:{filters}/]{path}[/as/{alias.ext}]")
 		}
 		sizeIndex = 2
 		req.ProvidedSignature = parts[1]
@@ -89,6 +90,13 @@ func ParseURL(path string) (*operations.Request, error) {
 		// No signature
 		sizeIndex = 1
 		req.ProvidedSignature = ""
+	}
+
+	// Build canonical payload used for signature generation/verification.
+	// Format: /{size}/[filters:{filters}/]{path}[/as/{alias.ext}]
+	req.SignaturePayload = extractSignaturePayloadFromRawPath(req.RawURLPath, req.ProvidedSignature)
+	if req.SignaturePayload == "" {
+		return nil, fmt.Errorf("unable to build signature payload from URL path")
 	}
 
 	// Clone resize operation for this request
@@ -126,11 +134,35 @@ func ParseURL(path string) (*operations.Request, error) {
 		req.FilterString = ""
 	}
 
+	// Parse optional alias suffix: {path}/as/{alias.ext}
+	sourcePath, aliasName, aliasFormat, hasAlias, err := parseAliasSuffix(filePath)
+	if err != nil {
+		return nil, err
+	}
+	req.Path = sourcePath
+	req.Alias = aliasName
+	req.AliasExtension = aliasFormat
+	req.HasAlias = hasAlias
+
 	// Ensure format operation is present (either from filters or from extension)
 	if !hasOperation(req, "format") {
 		formatOp := operationRegistry.FormatOp().Clone().(*operations.FormatOperation)
-		formatOp.DetectFromExtension(filePath)
+		if req.HasAlias && req.AliasExtension != "" {
+			formatOp.Format = req.AliasExtension
+		} else {
+			formatOp.DetectFromExtension(req.Path)
+		}
 		req.Operations = append(req.Operations, formatOp)
+	}
+
+	// If alias extension is recognized and explicit format filter exists, it must match alias format.
+	if req.HasAlias && req.AliasExtension != "" {
+		if formatOp := getFormatOperation(req); formatOp != nil {
+			normalizedFilterFormat := normalizeFormatName(formatOp.Format)
+			if normalizedFilterFormat != req.AliasExtension {
+				return nil, fmt.Errorf("alias extension %q conflicts with format(%s)", "."+req.AliasExtension, formatOp.Format)
+			}
+		}
 	}
 
 	// Ensure quality operation is present (either from filters or default)
@@ -152,9 +184,65 @@ func ParseURL(path string) (*operations.Request, error) {
 		return nil, err
 	}
 
-	req.Path = filePath
-
 	return req, nil
+}
+
+func parseAliasSuffix(path string) (sourcePath, aliasName, aliasFormat string, hasAlias bool, err error) {
+	parts := strings.Split(path, "/")
+	if len(parts) >= 3 && parts[len(parts)-2] == "as" {
+		hasAlias = true
+		aliasName = strings.TrimSpace(parts[len(parts)-1])
+		if aliasName == "" {
+			return "", "", "", false, fmt.Errorf("alias filename is required after /as/")
+		}
+
+		aliasFormat = detectKnownFormat(aliasName)
+		if aliasFormat == "" {
+			return "", "", "", false, fmt.Errorf("alias must include a supported extension (.jpg, .jpeg, .png, .webp, .avif)")
+		}
+
+		sourcePath = strings.Join(parts[:len(parts)-2], "/")
+		if strings.TrimSpace(sourcePath) == "" {
+			return "", "", "", false, fmt.Errorf("source path is required before /as/{alias}")
+		}
+
+		return sourcePath, aliasName, aliasFormat, true, nil
+	}
+
+	return path, "", "", false, nil
+}
+
+func detectKnownFormat(path string) string {
+	ext := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(ext, ".avif"):
+		return "avif"
+	case strings.HasSuffix(ext, ".webp"):
+		return "webp"
+	case strings.HasSuffix(ext, ".png"):
+		return "png"
+	case strings.HasSuffix(ext, ".jpg"), strings.HasSuffix(ext, ".jpeg"):
+		return "jpeg"
+	default:
+		return ""
+	}
+}
+
+func normalizeFormatName(format string) string {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "jpg" {
+		return "jpeg"
+	}
+	return format
+}
+
+func getFormatOperation(req *operations.Request) *operations.FormatOperation {
+	for _, op := range req.Operations {
+		if formatOp, ok := op.(*operations.FormatOperation); ok {
+			return formatOp
+		}
+	}
+	return nil
 }
 
 // parseFilters parses semicolon-separated filters
@@ -274,4 +362,17 @@ func isValidSignature(sig string) bool {
 		}
 	}
 	return true
+}
+
+func extractSignaturePayloadFromRawPath(rawPath, signature string) string {
+	parts := strings.SplitN(rawPath, "/", 2)
+	if len(parts) < 2 {
+		return ""
+	}
+
+	if parts[0] == signature && signature != "" {
+		return "/" + parts[1]
+	}
+
+	return "/" + rawPath
 }

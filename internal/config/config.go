@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	StorageConfigPath   string
+	SignatureSecret     string
 	Port                string
 	ReadTimeout         time.Duration
 	ReadHeaderTimeout   time.Duration
@@ -26,6 +27,7 @@ func Load() *Config {
 
 	return &Config{
 		StorageConfigPath:   getEnv("STORAGE_CONFIG_PATH", "./storage.json"),
+		SignatureSecret:     getEnv("SIGNATURE_SECRET", ""),
 		Port:                getEnv("PORT", "8080"),
 		ReadTimeout:         getEnvDurationSeconds("HTTP_READ_TIMEOUT_SECONDS", 5),
 		ReadHeaderTimeout:   getEnvDurationSeconds("HTTP_READ_HEADER_TIMEOUT_SECONDS", 2),

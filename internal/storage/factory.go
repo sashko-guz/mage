@@ -12,11 +12,11 @@ import (
 )
 
 // NewStorage creates a fully configured storage with all cache layers applied
-func NewStorage(cfg *StorageConfig) (Storage, string, error) {
+func NewStorage(cfg *StorageConfig) (Storage, error) {
 	// Step 1: Create base storage (S3 or local)
 	baseStorage, err := createBaseStorage(cfg)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	// Build log message parts
@@ -26,17 +26,17 @@ func NewStorage(cfg *StorageConfig) (Storage, string, error) {
 	// Step 2: Check if caching is configured
 	if cfg.Cache == nil {
 		logger.Infof("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
-		return baseStorage, cfg.SignatureSecret, nil
+		return baseStorage, nil
 	}
 
 	// Step 3: Wrap with cache layers
 	cachedStorage, err := wrapWithCache(baseStorage, cfg)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	logger.Infof("[Storage] Initialized (%s)", strings.Join(logParts, ", "))
-	return cachedStorage, cfg.SignatureSecret, nil
+	return cachedStorage, nil
 }
 
 // createBaseStorage creates the underlying storage driver (S3 or local)

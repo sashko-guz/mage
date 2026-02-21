@@ -22,9 +22,6 @@ type StorageConfig struct {
 	// Cache configuration
 	Cache *StorageCacheConfig `json:"cache,omitempty"`
 
-	// Signature secret key for HMAC signature validation (optional)
-	SignatureSecret string `json:"signature_secret,omitempty"`
-
 	// S3 specific fields
 	Bucket    string `json:"bucket,omitempty"`
 	Region    string `json:"region,omitempty"`

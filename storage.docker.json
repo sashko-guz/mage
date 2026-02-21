@@ -1,7 +1,6 @@
 {
   "driver": "local",
   "root": "/app/.data",
-  "signature_secret": "your-secret-key-here",
   "cache": {
     "sources": {
       "memory": {

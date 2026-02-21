@@ -43,14 +43,14 @@ func run() error {
 	vips.Startup(vipsCfg)
 	defer vips.Shutdown()
 
-	stor, signatureKey, err := initializeStorage(cfg.StorageConfigPath)
+	stor, err := initializeStorage(cfg.StorageConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	srv := setupServer(cfg, stor, signatureKey)
+	srv := setupServer(cfg, stor, cfg.SignatureSecret)
 
-	logServerInfo(cfg.Port, signatureKey)
+	logServerInfo(cfg.Port, cfg.SignatureSecret)
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server failed: %w", err)
@@ -81,18 +81,18 @@ func configureVips() *vips.Config {
 	return &vips.Config{ConcurrencyLevel: conc}
 }
 
-func initializeStorage(configPath string) (storage.Storage, string, error) {
+func initializeStorage(configPath string) (storage.Storage, error) {
 	storageConfig, err := storage.LoadConfig(configPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to load storage config: %w", err)
+		return nil, fmt.Errorf("failed to load storage config: %w", err)
 	}
 
-	stor, signatureKey, err := storage.NewStorage(storageConfig)
+	stor, err := storage.NewStorage(storageConfig)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to create storage: %w", err)
+		return nil, fmt.Errorf("failed to create storage: %w", err)
 	}
 
-	return stor, signatureKey, nil
+	return stor, nil
 }
 
 func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) *http.Server {
@@ -147,7 +147,7 @@ func logServerInfo(port, signatureKey string) {
 
 	signatureStatus := "DISABLED"
 	if signatureKey != "" {
-		signatureStatus = "ENABLED (secret key set in storage config)"
+		signatureStatus = "ENABLED (secret key set in SIGNATURE_SECRET env)"
 		log.Printf("[Server] Signature validation: %s", signatureStatus)
 		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
 		logger.Infof("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(90)/image.jpg", addr)

@@ -5,7 +5,11 @@ import "github.com/cshum/vipsgen/vips"
 // Request contains core thumbnail request information
 type Request struct {
 	Path              string // Image path in storage
+	Alias             string // Optional output alias filename from /as/{alias}
+	AliasExtension    string // Optional normalized alias extension (jpeg/png/webp/avif)
+	HasAlias          bool   // True when URL contains /as/{alias}
 	ProvidedSignature string // URL signature for validation
+	SignaturePayload  string // Canonical payload to sign/verify: /{size}/[filters:{filters}/]{path}[/as/{alias.ext}]
 	FilterString      string // Raw filter string for signature validation
 	RawURLPath        string // Raw path after /thumbs/ (without query params) for signature validation
 
