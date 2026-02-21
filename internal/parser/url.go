@@ -25,7 +25,7 @@ func Init(maxWidth, maxHeight, maxResolution int) {
 //   - Without signature: /thumbs/{size}/[filters:{filters}/]{path}[/as/{alias.ext}]
 //
 // Examples:
-//   - /thumbs/200x350/filters:format(webp);quality(88)/image.jpg
+//   - /thumbs/200x350/filters:format(webp);quality(90)/image.jpg
 //   - /thumbs/abc123/200x300/filters:crop(10,10,500,500);fit(cover)/image.jpg
 //   - /thumbs/200x350/path/to/source.jpg/as/preview.avif
 //

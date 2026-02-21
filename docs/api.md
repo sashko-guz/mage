@@ -79,7 +79,7 @@ With filters:
 With signature:
 
 ```text
-/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(88)/path/to/image.jpg
+/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(90)/path/to/image.jpg
 ```
 
 With alias:
@@ -91,17 +91,9 @@ With alias:
 With signature and alias:
 
 ```text
-/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(avif);quality(88)/path/to/image.jpg/as/card.avif
+/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(avif);quality(90)/path/to/image.jpg/as/card.avif
 ```
 
 ## Signature Generation
 
-When `SIGNATURE_SECRET` is configured, signature is required.
-
-Payload format:
-
-```text
-/{size}/[filters:{filters}/]{path}[/as/{alias.ext}]
-```
-
-The signature is first 16 hex chars of HMAC-SHA256 over payload.
+See [Signature Generation](signature.md) for payload rules and implementation examples (Node.js and PHP).

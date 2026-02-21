@@ -33,6 +33,7 @@ You can configure runtime settings from `.env` (for example `LOG_LEVEL=error`).
 - [Getting Started](docs/getting-started.md)
 - [Configuration](docs/configuration.md)
 - [URL API and Filters](docs/api.md)
+- [Signature Generation](docs/signature.md)
 - [Caching](docs/caching.md)
 - [S3 HTTP Client Optimization](docs/s3-http-client.md)
 - [Project Structure](docs/project-structure.md)
