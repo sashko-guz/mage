@@ -59,5 +59,6 @@ docker compose up --build
 Compose uses relative paths from `docker-compose.yml` and mounts:
 
 - `./storage.docker.json` -> `/app/storage.docker.json`
-- `./.data` -> `/app/data`
+- `./.env` -> `/app/.env`
+- `./.data` -> `/app/.data`
 - `./.cache` -> `/app/.cache`

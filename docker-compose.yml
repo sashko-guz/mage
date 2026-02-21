@@ -16,7 +16,7 @@ services:
       # Mount storage configuration
       - ./storage.docker.json:/app/storage.docker.json:ro
       # Mount local storage data (portable relative paths)
-      - ./.data:/app/data
+      - ./.data:/app/.data
       # Mount cache directories
       - ./.cache:/app/.cache
     working_dir: /app
