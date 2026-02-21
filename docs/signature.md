@@ -46,7 +46,8 @@ const payload = '/200x350/filters:quality(90)/path/to/image.jpg/as/card.avif';
 const signature = signPayload(payload, secret);
 
 const url = `/thumbs/${signature}${payload}`;
-console.log(url);
+
+console.info(url);
 ```
 
 ## PHP Example
