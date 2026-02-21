@@ -72,12 +72,12 @@ func (o *FitOperation) Apply(img *vips.Image) (*vips.Image, error) {
 	return img, nil
 }
 
-// Validate checks that transparent fill color is only used with PNG or WebP formats
+// Validate checks that transparent fill color is only used with PNG, WebP, or AVIF formats
 func (o *FitOperation) Validate() error {
 	if o.FillColor == "transparent" {
-		// Transparent requires PNG or WebP format
-		if o.Format != "png" && o.Format != "webp" {
-			return fmt.Errorf("transparent fill color requires PNG or WebP format (use filters:format(png) or filters:format(webp))")
+		// Transparent requires PNG, WebP, or AVIF format
+		if o.Format != "png" && o.Format != "webp" && o.Format != "avif" {
+			return fmt.Errorf("transparent fill color requires PNG, WebP, or AVIF format (use filters:format(png), filters:format(webp), or filters:format(avif))")
 		}
 	}
 	return nil

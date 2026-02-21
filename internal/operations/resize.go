@@ -206,13 +206,39 @@ func (o *ResizeOperation) resizeFill(img *vips.Image, targetWidth, targetHeight 
 		return img, nil
 	}
 
-	// Determine background color for non-transparent fills (RGBA format)
+	// Determine background color for non-transparent fills.
+	bands := img.Bands()
+	hasAlpha := img.HasAlpha()
 	var bgColor []float64
-	switch o.FillColor {
-	case "black":
-		bgColor = []float64{0, 0, 0, 255}
-	default: // "white"
-		bgColor = []float64{255, 255, 255, 255}
+
+	if hasAlpha {
+		if bands == 2 {
+			if o.FillColor == "black" {
+				bgColor = []float64{0, 255}
+			} else {
+				bgColor = []float64{255, 255}
+			}
+		} else {
+			if o.FillColor == "black" {
+				bgColor = []float64{0, 0, 0, 255}
+			} else {
+				bgColor = []float64{255, 255, 255, 255}
+			}
+		}
+	} else {
+		if bands == 1 {
+			if o.FillColor == "black" {
+				bgColor = []float64{0}
+			} else {
+				bgColor = []float64{255}
+			}
+		} else {
+			if o.FillColor == "black" {
+				bgColor = []float64{0, 0, 0}
+			} else {
+				bgColor = []float64{255, 255, 255}
+			}
+		}
 	}
 
 	// Embed the image in a canvas with the target dimensions

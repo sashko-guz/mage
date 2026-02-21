@@ -44,11 +44,11 @@ func (o *FormatOperation) Parse(filter string) (bool, error) {
 
 	format := strings.ToLower(content)
 	switch format {
-	case "webp", "jpeg", "png", "jpg":
+	case "webp", "jpeg", "png", "jpg", "avif":
 		o.Format = format
 		return true, nil
 	default:
-		return false, fmt.Errorf("unsupported format: %s (supported: webp, jpeg, png)", format)
+		return false, fmt.Errorf("unsupported format: %s (supported: webp, jpeg, png, avif)", format)
 	}
 }
 
@@ -69,6 +69,12 @@ func (o *FormatOperation) Export(img *vips.Image, quality int) ([]byte, string, 
 			Q: quality,
 		})
 		contentType = "image/webp"
+	case "avif":
+		result, err = img.HeifsaveBuffer(&vips.HeifsaveBufferOptions{
+			Q:           quality,
+			Compression: vips.HeifCompressionAv1,
+		})
+		contentType = "image/avif"
 	case "png":
 		result, err = img.PngsaveBuffer(&vips.PngsaveBufferOptions{
 			Q: quality,
@@ -95,6 +101,8 @@ func (o *FormatOperation) DetectFromExtension(path string) {
 	ext := strings.ToLower(path)
 	if strings.HasSuffix(ext, ".webp") {
 		o.Format = "webp"
+	} else if strings.HasSuffix(ext, ".avif") {
+		o.Format = "avif"
 	} else if strings.HasSuffix(ext, ".png") {
 		o.Format = "png"
 	} else if strings.HasSuffix(ext, ".jpg") {

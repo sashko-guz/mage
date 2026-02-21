@@ -18,7 +18,7 @@
 
 ### `format(format)`
 
-- Supported: `jpeg`, `png`, `webp`
+- Supported: `jpeg`, `png`, `webp`, `avif`
 - Default: from extension, fallback `jpeg`
 
 ### `quality(level)`
@@ -29,7 +29,7 @@
 ### `fit(mode[,color])`
 
 - Modes: `cover` (default), `fill`
-- Fill colors for `fill`: `black`, `white`, `transparent` (PNG and WebP)
+- Fill colors for `fill`: `black`, `white`, `transparent` (PNG, WebP, and AVIF)
 
 ### Resize (`{width}x{height}`)
 
@@ -71,7 +71,7 @@ Without filters:
 With filters:
 
 ```text
-/thumbs/200x350/filters:format(webp);quality(90);fit(fill,black)/path/to/image.jpg
+/thumbs/200x350/filters:format(avif);quality(90);fit(fill,black)/path/to/image.jpg
 ```
 
 With signature:
