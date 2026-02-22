@@ -26,7 +26,7 @@
         "ttl_seconds": 1800,
         "max_size_mb": 10240,
         "max_items": 327680,
-        "dir": "/var/cache/mage/sources",
+        "dir": "./.cache/sources",
         "clear_on_startup": false,
         "async_write": {
           "enabled": true,
@@ -47,7 +47,7 @@
         "ttl_seconds": 7200,
         "max_size_mb": 10240,
         "max_items": 655360,
-        "dir": "/var/cache/mage/thumbs",
+        "dir": "./cache/thumbs",
         "clear_on_startup": false,
         "async_write": {
           "enabled": true,
