@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -27,10 +28,11 @@ type ThumbnailHandler struct {
 	singleflight   *singleflight.Group
 	processSem     chan struct{}
 	signer         *parser.Signature // URL signature handler
+	maxInputSize   int               // max input image size in bytes
 	cachingEnabled bool              // true if storage supports caching
 }
 
-func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcessor, signatureKey string) (*ThumbnailHandler, error) {
+func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcessor, signatureKey string, maxInputSize int) (*ThumbnailHandler, error) {
 	// Check once at startup if caching is enabled
 	_, cachingEnabled := stor.(*storage.CachedStorage)
 
@@ -48,6 +50,7 @@ func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcess
 	}
 
 	logger.Infof("[ThumbnailHandler] Process concurrency: %d workers (CPU cores: %d)", maxConcurrent, numCPU)
+	logger.Infof("[ThumbnailHandler] Max input image size: %d MB", maxInputSize/(1024*1024))
 
 	return &ThumbnailHandler{
 		storage:        stor,
@@ -55,8 +58,18 @@ func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcess
 		singleflight:   &singleflight.Group{},
 		processSem:     make(chan struct{}, maxConcurrent), // Dynamic based on CPU
 		signer:         parser.NewSignature(signatureKey),
+		maxInputSize:   maxInputSize,
 		cachingEnabled: cachingEnabled,
 	}, nil
+}
+
+type inputImageTooLargeError struct {
+	Actual int
+	Limit  int
+}
+
+func (e *inputImageTooLargeError) Error() string {
+	return fmt.Sprintf("source image size %d bytes exceeds configured limit %d bytes", e.Actual, e.Limit)
 }
 
 // encodeThumbnailBinary encodes ThumbnailResult to binary format
@@ -259,6 +272,11 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 
+		if h.maxInputSize > 0 && len(imageData) > h.maxInputSize {
+			logger.Warnf("[ThumbnailHandler] Source image too large: path=%s, size=%d bytes, limit=%d bytes", req.Path, len(imageData), h.maxInputSize)
+			return nil, &inputImageTooLargeError{Actual: len(imageData), Limit: h.maxInputSize}
+		}
+
 		// Generate thumbnail
 		thumbnail, contentType, err := h.processor.CreateThumbnail(imageData, req)
 		if err != nil {
@@ -289,6 +307,15 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		var tooLargeErr *inputImageTooLargeError
+		if errors.As(err, &tooLargeErr) {
+			http.Error(w,
+				fmt.Sprintf("Source image is too large: %.2f MB exceeds limit %.2f MB", float64(tooLargeErr.Actual)/(1024*1024), float64(tooLargeErr.Limit)/(1024*1024)),
+				http.StatusRequestEntityTooLarge,
+			)
+			return
+		}
+
 		http.Error(w, fmt.Sprintf("Failed to create thumbnail: %v (url=%s)", err, r.URL.String()), http.StatusInternalServerError)
 		return
 	}

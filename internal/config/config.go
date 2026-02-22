@@ -15,6 +15,7 @@ type Config struct {
 	WriteTimeout        time.Duration
 	IdleTimeout         time.Duration
 	MaxHeaderBytes      int
+	MaxInputImageSize   int
 	MaxResizeWidth      int
 	MaxResizeHeight     int
 	MaxResizeResolution int
@@ -34,6 +35,7 @@ func Load() *Config {
 		WriteTimeout:        getEnvDurationSeconds("HTTP_WRITE_TIMEOUT_SECONDS", 30),
 		IdleTimeout:         getEnvDurationSeconds("HTTP_IDLE_TIMEOUT_SECONDS", 120),
 		MaxHeaderBytes:      getEnvInt("HTTP_MAX_HEADER_BYTES", 1<<20),
+		MaxInputImageSize:   getEnvInt("MAX_INPUT_IMAGE_SIZE_MB", 64) * 1024 * 1024,
 		MaxResizeWidth:      maxResizeWidth,
 		MaxResizeHeight:     maxResizeHeight,
 		MaxResizeResolution: maxResizeResolution,

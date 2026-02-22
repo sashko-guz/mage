@@ -38,6 +38,7 @@ func run() error {
 	log.Printf("[Server] Storage config loaded from: %s", cfg.StorageConfigPath)
 	log.Printf("[Server] Resize limits: max width=%d px, max height=%d px, max resolution=%d px",
 		cfg.MaxResizeWidth, cfg.MaxResizeHeight, cfg.MaxResizeResolution)
+	log.Printf("[Server] Max input image size: %d MB", cfg.MaxInputImageSize/(1024*1024))
 
 	vipsCfg := configureVips()
 	vips.Startup(vipsCfg)
@@ -98,7 +99,7 @@ func initializeStorage(configPath string) (storage.Storage, error) {
 func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) *http.Server {
 	imageProcessor := processor.NewImageProcessor()
 
-	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, signatureKey)
+	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, signatureKey, cfg.MaxInputImageSize)
 	if err != nil {
 		logger.Fatalf("[Server] Failed to initialize thumbnail handler: %v", err)
 	}
