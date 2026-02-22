@@ -73,8 +73,8 @@ RUN DEBIAN_FRONTEND=noninteractive \
 COPY --from=builder /go/bin/mage /usr/local/bin/mage
 
 # Create necessary directories and set proper permissions for nobody user
-RUN mkdir -p /app /app/data /app/.cache/sources /app/.cache/thumbs && \
-    chmod -R 777 /app
+RUN mkdir -p /app /app/.data /app/.cache/sources /app/.cache/thumbs && \
+    chmod -R 755 /app
 
 ENV VIPS_WARNING=0
 ENV MALLOC_ARENA_MAX=2
