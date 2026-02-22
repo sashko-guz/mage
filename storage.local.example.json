@@ -11,7 +11,7 @@
       },
       "disk": {
         "enabled": true,
-        "ttl_seconds": 300,
+        "ttl_seconds": 600,
         "max_size_mb": 2048,
         "max_items": 131072,
         "dir": "./.cache/sources",
@@ -26,13 +26,13 @@
     "thumbs": {
       "memory": {
         "enabled": true,
-        "ttl_seconds": 600,
+        "ttl_seconds": 120,
         "max_size_mb": 512,
         "max_items": 500
       },
       "disk": {
         "enabled": true,
-        "ttl_seconds": 300,
+        "ttl_seconds": 600,
         "max_size_mb": 10240,
         "max_items": 655360,
         "dir": "./.cache/thumbs",
