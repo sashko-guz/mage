@@ -15,7 +15,9 @@ import (
 	"github.com/sashko-guz/mage/internal/logger"
 	"github.com/sashko-guz/mage/internal/parser"
 	"github.com/sashko-guz/mage/internal/processor"
+	"github.com/sashko-guz/mage/internal/signature"
 	"github.com/sashko-guz/mage/internal/storage"
+	storageDrivers "github.com/sashko-guz/mage/internal/storage/drivers"
 )
 
 func main() {
@@ -32,6 +34,8 @@ func run() error {
 	cfg := config.Load()
 
 	parser.Init(cfg.MaxResizeWidth, cfg.MaxResizeHeight, cfg.MaxResizeResolution)
+	parser.SetSignatureLength(cfg.SignatureLength)
+	parser.SetSignatureValidationEnabled(cfg.SignatureSecret != "")
 
 	log.Printf("[Server] Starting…")
 	log.Printf("[Server] Log level: %s", logger.CurrentLevelString())
@@ -49,9 +53,9 @@ func run() error {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	srv := setupServer(cfg, stor, cfg.SignatureSecret)
+	srv := setupServer(cfg, stor)
 
-	logServerInfo(cfg.Port, cfg.SignatureSecret)
+	logServerInfo(cfg)
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server failed: %w", err)
@@ -82,7 +86,7 @@ func configureVips() *vips.Config {
 	return &vips.Config{ConcurrencyLevel: conc}
 }
 
-func initializeStorage(configPath string) (storage.Storage, error) {
+func initializeStorage(configPath string) (storageDrivers.Storage, error) {
 	storageConfig, err := storage.LoadConfig(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load storage config: %w", err)
@@ -96,10 +100,16 @@ func initializeStorage(configPath string) (storage.Storage, error) {
 	return stor, nil
 }
 
-func setupServer(cfg *config.Config, stor storage.Storage, signatureKey string) *http.Server {
+func setupServer(cfg *config.Config, stor storageDrivers.Storage) *http.Server {
 	imageProcessor := processor.NewImageProcessor()
+	signatureCfg := signature.Config{
+		SecretKey:     cfg.SignatureSecret,
+		Algorithm:     cfg.SignatureAlgorithm,
+		ExtractStart:  cfg.SignatureStart,
+		ExtractLength: cfg.SignatureLength,
+	}
 
-	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, signatureKey, cfg.MaxInputImageSize)
+	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, signatureCfg, cfg.MaxInputImageSize)
 	if err != nil {
 		logger.Fatalf("[Server] Failed to initialize thumbnail handler: %v", err)
 	}
@@ -142,14 +152,19 @@ func buildRoutes(thumbnailHandler *handler.ThumbnailHandler) http.Handler {
 	})
 }
 
-func logServerInfo(port, signatureKey string) {
-	addr := ":" + port
+func logServerInfo(cfg *config.Config) {
+	addr := ":" + cfg.Port
 	log.Printf("[Server] Server listening on %s", addr)
 
 	signatureStatus := "DISABLED"
-	if signatureKey != "" {
+	if cfg.SignatureSecret != "" {
 		signatureStatus = "ENABLED (secret key set in SIGNATURE_SECRET env)"
 		log.Printf("[Server] Signature validation: %s", signatureStatus)
+		log.Printf("[Server] Signature config: algo=%s, extract_start=%d, length=%d",
+			cfg.SignatureAlgorithm,
+			cfg.SignatureStart,
+			cfg.SignatureLength,
+		)
 		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
 		logger.Infof("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(90)/image.jpg", addr)
 	} else {

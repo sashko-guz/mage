@@ -9,6 +9,9 @@ import (
 type Config struct {
 	StorageConfigPath   string
 	SignatureSecret     string
+	SignatureAlgorithm  string
+	SignatureStart      int
+	SignatureLength     int
 	Port                string
 	ReadTimeout         time.Duration
 	ReadHeaderTimeout   time.Duration
@@ -29,6 +32,9 @@ func Load() *Config {
 	return &Config{
 		StorageConfigPath:   getEnv("STORAGE_CONFIG_PATH", "./storage.json"),
 		SignatureSecret:     getEnv("SIGNATURE_SECRET", ""),
+		SignatureAlgorithm:  getEnv("SIGNATURE_ALGO", "sha256"),
+		SignatureStart:      getEnvIntMin("SIGNATURE_EXTRACT_START", 0, 0),
+		SignatureLength:     getEnvIntMin("SIGNATURE_LENGTH", 16, 1),
 		Port:                getEnv("PORT", "8080"),
 		ReadTimeout:         getEnvDurationSeconds("HTTP_READ_TIMEOUT_SECONDS", 5),
 		ReadHeaderTimeout:   getEnvDurationSeconds("HTTP_READ_HEADER_TIMEOUT_SECONDS", 2),
@@ -66,4 +72,18 @@ func getEnvInt(key string, defaultValue int) int {
 
 func getEnvDurationSeconds(key string, defaultSeconds int) time.Duration {
 	return time.Duration(getEnvInt(key, defaultSeconds)) * time.Second
+}
+
+func getEnvIntMin(key string, defaultValue int, minValue int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < minValue {
+		return defaultValue
+	}
+
+	return parsed
 }

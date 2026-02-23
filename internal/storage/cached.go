@@ -7,6 +7,7 @@ import (
 
 	"github.com/sashko-guz/mage/internal/cache"
 	"github.com/sashko-guz/mage/internal/logger"
+	"github.com/sashko-guz/mage/internal/storage/drivers"
 )
 
 // cacheWriteTask represents a single cache write operation
@@ -20,7 +21,7 @@ type cacheWriteTask struct {
 // Layer 2: Disk-based cache (persistent, optional) - separate for sources and thumbnails
 // Layer 3: Underlying storage (S3, local, etc.) - only for source images
 type CachedStorage struct {
-	underlying Storage
+	underlying drivers.Storage
 
 	// Source image caching
 	sourceMemoryCache *cache.MemoryCache

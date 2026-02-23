@@ -9,13 +9,27 @@ import (
 
 var (
 	// Global operation registry - initialized once at startup via Init
-	operationRegistry *operations.Registry
+	operationRegistry          *operations.Registry
+	signatureLength            = 16
+	signatureValidationEnabled = true
 )
 
 // Init initializes the parser with resize dimension limits from config.
 // Must be called once at startup before any ParseURL calls.
 func Init(maxWidth, maxHeight, maxResolution int) {
 	operationRegistry = operations.NewRegistry(maxWidth, maxHeight, maxResolution)
+}
+
+// SetSignatureLength configures expected signature length in URL.
+func SetSignatureLength(length int) {
+	if length > 0 {
+		signatureLength = length
+	}
+}
+
+// SetSignatureValidationEnabled enables/disables signature format validation during URL parsing.
+func SetSignatureValidationEnabled(enabled bool) {
+	signatureValidationEnabled = enabled
 }
 
 // ParseURL parses a URL path and returns a Request with parsed operations
@@ -83,7 +97,7 @@ func ParseURL(path string) (*operations.Request, error) {
 		sizeIndex = 2
 		req.ProvidedSignature = parts[1]
 
-		if !isValidSignature(req.ProvidedSignature) {
+		if signatureValidationEnabled && !isValidSignature(req.ProvidedSignature) {
 			return nil, fmt.Errorf("invalid signature format")
 		}
 	} else {
@@ -353,7 +367,7 @@ func validateOperations(ops []operations.Operation) error {
 
 // isValidSignature checks if the signature has a valid format
 func isValidSignature(sig string) bool {
-	if len(sig) < 8 || len(sig) > 64 {
+	if len(sig) != signatureLength {
 		return false
 	}
 	for _, c := range sig {

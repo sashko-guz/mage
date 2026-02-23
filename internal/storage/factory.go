@@ -12,7 +12,7 @@ import (
 )
 
 // NewStorage creates a fully configured storage with all cache layers applied
-func NewStorage(cfg *StorageConfig) (Storage, error) {
+func NewStorage(cfg *StorageConfig) (drivers.Storage, error) {
 	// Step 1: Create base storage (S3 or local)
 	baseStorage, err := createBaseStorage(cfg)
 	if err != nil {
@@ -40,7 +40,7 @@ func NewStorage(cfg *StorageConfig) (Storage, error) {
 }
 
 // createBaseStorage creates the underlying storage driver (S3 or local)
-func createBaseStorage(cfg *StorageConfig) (Storage, error) {
+func createBaseStorage(cfg *StorageConfig) (drivers.Storage, error) {
 	switch cfg.Driver {
 	case DriverS3:
 		if cfg.Bucket == "" {
@@ -67,7 +67,7 @@ func createBaseStorage(cfg *StorageConfig) (Storage, error) {
 }
 
 // wrapWithCache wraps the base storage with separate cache layers for sources and thumbnails
-func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
+func wrapWithCache(baseStorage drivers.Storage, cfg *StorageConfig) (drivers.Storage, error) {
 	if cfg.Cache == nil {
 		return baseStorage, nil
 	}
@@ -248,7 +248,7 @@ func wrapWithCache(baseStorage Storage, cfg *StorageConfig) (Storage, error) {
 }
 
 // newCachedStorage creates a wrapped storage with separate caching for sources and thumbnails
-func newCachedStorage(underlying Storage, cfg CachedStorageConfig) (*CachedStorage, error) {
+func newCachedStorage(underlying drivers.Storage, cfg CachedStorageConfig) (*CachedStorage, error) {
 	// Validate that at least one cache is enabled
 	sourcesCacheEnabled := (cfg.SourceMemoryCache != nil && cfg.SourceMemoryCache.Enabled) ||
 		(cfg.SourceDiskCache != nil && cfg.SourceDiskCache.Enabled)

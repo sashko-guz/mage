@@ -2,6 +2,12 @@
 
 When `SIGNATURE_SECRET` is configured, signed URLs are required.
 
+Signature behavior is configurable via env:
+
+- `SIGNATURE_ALGO`: `sha256` or `sha512` (default: `sha256`)
+- `SIGNATURE_EXTRACT_START`: digest extraction start offset (default: `0`)
+- `SIGNATURE_LENGTH`: extracted signature length (default: `16`)
+
 ## Payload Format
 
 The signature is generated from the canonical payload path:
@@ -20,9 +26,13 @@ Examples of payloads:
 
 Signature algorithm:
 
-- HMAC-SHA256 over payload string
+- HMAC over payload string using configured algorithm (`sha256` or `sha512`)
 - Hex-encode digest
-- Use first 16 hex chars
+- Extract signature using configured range:
+    - start = `SIGNATURE_EXTRACT_START`
+    - length = `SIGNATURE_LENGTH`
+
+Default extraction uses first 16 hex chars (start `0`, length `16`).
 
 ## Node.js Example
 
@@ -34,11 +44,16 @@ function signPayload(payload, secret) {
         ? payload 
         : `/${payload}`;
 
-    return crypto
-        .createHmac('sha256', secret)
+    const algo = process.env.SIGNATURE_ALGO || 'sha256';
+    const start = Number(process.env.SIGNATURE_EXTRACT_START || '0');
+    const length = Number(process.env.SIGNATURE_LENGTH || '16');
+
+    const hash = crypto
+        .createHmac(algo, secret)
         .update(normalizedPayload)
-        .digest('hex')
-        .slice(0, 16);
+        .digest('hex');
+
+    return hash.slice(start, start + length);
 }
 
 const secret = process.env.SIGNATURE_SECRET;
@@ -61,13 +76,17 @@ function signPayload(string $payload, string $secret): string
         ? $payload 
         : "/{$payload}";
 
+    $algo = getenv('SIGNATURE_ALGO') ?: 'sha256';
+    $start = (int)(getenv('SIGNATURE_EXTRACT_START') ?: 0);
+    $length = (int)(getenv('SIGNATURE_LENGTH') ?: 16);
+
     $hash = hash_hmac(
-        'sha256', 
+        $algo,
         $normalizedPayload, 
         $secret
     );
 
-    return substr($hash, 0, 16);
+    return substr($hash, $start, $length);
 }
 
 $secret = getenv('SIGNATURE_SECRET');

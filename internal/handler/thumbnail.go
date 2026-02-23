@@ -13,7 +13,9 @@ import (
 	"github.com/sashko-guz/mage/internal/operations"
 	"github.com/sashko-guz/mage/internal/parser"
 	"github.com/sashko-guz/mage/internal/processor"
+	"github.com/sashko-guz/mage/internal/signature"
 	"github.com/sashko-guz/mage/internal/storage"
+	storageDrivers "github.com/sashko-guz/mage/internal/storage/drivers"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -23,16 +25,16 @@ type ThumbnailResult struct {
 }
 
 type ThumbnailHandler struct {
-	storage        storage.Storage
+	storage        storageDrivers.Storage
 	processor      *processor.ImageProcessor
 	singleflight   *singleflight.Group
 	processSem     chan struct{}
-	signer         *parser.Signature // URL signature handler
-	maxInputSize   int               // max input image size in bytes
-	cachingEnabled bool              // true if storage supports caching
+	signer         *signature.Signature // URL signature handler
+	maxInputSize   int                  // max input image size in bytes
+	cachingEnabled bool                 // true if storage supports caching
 }
 
-func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcessor, signatureKey string, maxInputSize int) (*ThumbnailHandler, error) {
+func NewThumbnailHandler(stor storageDrivers.Storage, processor *processor.ImageProcessor, signatureCfg signature.Config, maxInputSize int) (*ThumbnailHandler, error) {
 	// Check once at startup if caching is enabled
 	_, cachingEnabled := stor.(*storage.CachedStorage)
 
@@ -52,12 +54,21 @@ func NewThumbnailHandler(stor storage.Storage, processor *processor.ImageProcess
 	logger.Infof("[ThumbnailHandler] Process concurrency: %d workers (CPU cores: %d)", maxConcurrent, numCPU)
 	logger.Infof("[ThumbnailHandler] Max input image size: %d MB", maxInputSize/(1024*1024))
 
+	var signer *signature.Signature
+	if signatureCfg.SecretKey != "" {
+		var err error
+		signer, err = signature.New(signatureCfg)
+		if err != nil {
+			return nil, fmt.Errorf("invalid signature configuration: %w", err)
+		}
+	}
+
 	return &ThumbnailHandler{
 		storage:        stor,
 		processor:      processor,
 		singleflight:   &singleflight.Group{},
 		processSem:     make(chan struct{}, maxConcurrent), // Dynamic based on CPU
-		signer:         parser.NewSignature(signatureKey),
+		signer:         signer,
 		maxInputSize:   maxInputSize,
 		cachingEnabled: cachingEnabled,
 	}, nil
@@ -236,6 +247,12 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.signer == nil && req.ProvidedSignature != "" {
+		logger.Warnf("[ThumbnailHandler] Signed URL rejected: signature validation is disabled (url=%s)", r.URL.String())
+		http.Error(w, "Signed URLs are not allowed when signature validation is disabled", http.StatusNotFound)
+		return
+	}
+
 	if logger.EnabledDebug() {
 		sigInfo := ""
 		if req.ProvidedSignature != "" {
@@ -250,12 +267,14 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify signature if enabled
-	if err := h.signer.Verify(req); err != nil {
-		logger.Warnf("[ThumbnailHandler] Signature validation failed: %v (url=%s)", err, r.URL.String())
-		// Return 404 instead of 403 to avoid information disclosure
-		// This prevents revealing whether a resource exists when signature is invalid
-		http.Error(w, fmt.Sprintf("Signature validation failed: %v", err), http.StatusNotFound)
-		return
+	if h.signer != nil {
+		if err := h.signer.Verify(req); err != nil {
+			logger.Warnf("[ThumbnailHandler] Signature validation failed: %v (url=%s)", err, r.URL.String())
+			// Return 404 instead of 403 to avoid information disclosure
+			// This prevents revealing whether a resource exists when signature is invalid
+			http.Error(w, fmt.Sprintf("Signature validation failed: %v", err), http.StatusNotFound)
+			return
+		}
 	}
 
 	// Use singleflight to deduplicate concurrent identical requests
