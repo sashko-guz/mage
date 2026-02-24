@@ -3,7 +3,7 @@ package hashers
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 )
 
 const AlgorithmSHA256 = "sha256"
@@ -19,7 +19,7 @@ func (h *sha256Hasher) Name() string {
 }
 
 func (h *sha256Hasher) DigestHexLength() int {
-	return sha256.Size * 2
+	return base64.RawURLEncoding.EncodedLen(sha256.Size)
 }
 
 func (h *sha256Hasher) ValidateRange(extractStart, extractLength int) error {
@@ -31,8 +31,8 @@ func (h *sha256Hasher) Generate(secretKey, payloadPath string, extractStart, ext
 
 	mac := hmac.New(sha256.New, []byte(secretKey))
 	mac.Write([]byte(normalizedPayload))
-	hexDigest := hex.EncodeToString(mac.Sum(nil))
+	base64Digest := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 
 	end := extractStart + extractLength
-	return hexDigest[extractStart:end]
+	return base64Digest[extractStart:end]
 }

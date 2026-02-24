@@ -85,15 +85,17 @@ func ParseURL(path string) (*operations.Request, error) {
 		req.RawURLPath = rawPath
 	}
 
-	// Determine signature presence by checking if parts[1] is a size format
+	// Determine signature presence by checking if parts[1] is a valid signature or a size
+	// Signatures are base64 RawURL encoded with fixed length
+	// Sizes contain 'x' character and are numeric with optional x separator (e.g. "200x300" or "200x")
 	var sizeIndex int
 	resizePrototype := operationRegistry.ResizeOp()
 
-	if !resizePrototype.IsSizeFormat(parts[1]) {
+	// Check if parts[1] looks like a valid signature (correct length and valid base64 RawURL chars)
+	// AND verify that parts[2] is a valid size format
+	// This takes priority over size format check since signatures can contain 'x'
+	if len(parts[1]) == signatureLength && looksLikeBase64Signature(parts[1]) && len(parts) >= 4 && resizePrototype.IsSizeFormat(parts[2]) {
 		// Has signature
-		if len(parts) < 4 {
-			return nil, fmt.Errorf("invalid path format, expected /thumbs/{signature}/{size}/[filters:{filters}/]{path}[/as/{alias.ext}]")
-		}
 		sizeIndex = 2
 		req.ProvidedSignature = parts[1]
 
@@ -365,13 +367,32 @@ func validateOperations(ops []operations.Operation) error {
 	return nil
 }
 
-// isValidSignature checks if the signature has a valid format
+// looksLikeBase64Signature checks if a string is more likely a signature than a size
+// Sizes only contain digits and 'x': (e.g., "1258x1258", "200x300x", "1920x")
+// Signatures contain base64 RawURL characters: letters (a-z, A-Z), dashes (-), or underscores (_)
+// If a string contains any letter, dash, or underscore, it's definitely a signature
+// This avoids ambiguity with size formats configured at specific lengths
+func looksLikeBase64Signature(s string) bool {
+	for _, c := range s {
+		// If it contains letters, dash, or underscore, it must be a signature
+		// Letters: a-z, A-Z (excluding just 'x' which could be in a size)
+		// Special chars: -, _
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_' {
+			return true
+		}
+	}
+	// If we only saw digits and/or 'x', it's a size, not a signature
+	return false
+}
+
+// isValidSignature checks if the signature has a valid format (base64 RawURL encoding)
 func isValidSignature(sig string) bool {
 	if len(sig) != signatureLength {
 		return false
 	}
 	for _, c := range sig {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		// Base64 RawURL alphabet: A-Z, a-z, 0-9, -, _
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_') {
 			return false
 		}
 	}

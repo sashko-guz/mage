@@ -27,12 +27,12 @@ Examples of payloads:
 Signature algorithm:
 
 - HMAC over payload string using configured algorithm (`sha256` or `sha512`)
-- Hex-encode digest
+- Base64 RawURL-encode digest
 - Extract signature using configured range:
     - start = `SIGNATURE_EXTRACT_START`
     - length = `SIGNATURE_LENGTH`
 
-Default extraction uses first 16 hex chars (start `0`, length `16`).
+Default extraction uses first 16 base64 characters (start `0`, length `16`).
 
 ## Node.js Example
 
@@ -51,9 +51,15 @@ function signPayload(payload, secret) {
     const hash = crypto
         .createHmac(algo, secret)
         .update(normalizedPayload)
-        .digest('hex');
+        .digest();
 
-    return hash.slice(start, start + length);
+    const base64Signature = Buffer.from(hash)
+        .toString('base64url');
+
+    return base64Signature.slice(
+        start,
+        start + length,
+    );
 }
 
 const secret = process.env.SIGNATURE_SECRET;
@@ -82,11 +88,26 @@ function signPayload(string $payload, string $secret): string
 
     $hash = hash_hmac(
         $algo,
-        $normalizedPayload, 
-        $secret
+        $normalizedPayload,
+        $secret,
+        true
     );
 
-    return substr($hash, $start, $length);
+    $encodedHash = base64_encode($hash);
+
+    $replacedHash = strtr(
+        $encodedHash,
+        '+/',
+        '-_',
+    );
+
+    $base64Signature = rtrim($replacedHash, '=');
+
+    return substr(
+        $base64Signature,
+        $start,
+        $length
+    );
 }
 
 $secret = getenv('SIGNATURE_SECRET');

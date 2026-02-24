@@ -128,12 +128,12 @@ func setupServer(cfg *config.Config, stor storageDrivers.Storage) *http.Server {
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,    // Max header size (prevent header-based attacks)
 	}
 
-	logger.Infof("[Server] HTTP server configured:")
-	logger.Infof("  - ReadTimeout: %v", srv.ReadTimeout)
-	logger.Infof("  - ReadHeaderTimeout: %v", srv.ReadHeaderTimeout)
-	logger.Infof("  - WriteTimeout: %v", srv.WriteTimeout)
-	logger.Infof("  - IdleTimeout: %v", srv.IdleTimeout)
-	logger.Infof("  - MaxHeaderBytes: %d bytes", srv.MaxHeaderBytes)
+	log.Printf("[Server] HTTP server configured:")
+	log.Printf("  - ReadTimeout: %v", srv.ReadTimeout)
+	log.Printf("  - ReadHeaderTimeout: %v", srv.ReadHeaderTimeout)
+	log.Printf("  - WriteTimeout: %v", srv.WriteTimeout)
+	log.Printf("  - IdleTimeout: %v", srv.IdleTimeout)
+	log.Printf("  - MaxHeaderBytes: %d bytes", srv.MaxHeaderBytes)
 
 	return srv
 }
@@ -166,11 +166,9 @@ func logServerInfo(cfg *config.Config) {
 			cfg.SignatureLength,
 		)
 		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
-		logger.Infof("[Server] Example: http://localhost%s/thumbs/a1b2c3d4e5f6g7h8/400x300/filters:format(webp);quality(90)/image.jpg", addr)
 	} else {
 		log.Printf("[Server] Signature validation: %s", signatureStatus)
 		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/{size}/[filters:{filters}/]{path}", addr)
-		logger.Infof("[Server] Example: http://localhost%s/thumbs/400x300/filters:format(webp);quality(90)/image.jpg", addr)
 	}
 }
 
