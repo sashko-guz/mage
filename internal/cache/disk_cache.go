@@ -12,24 +12,22 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
+	"github.com/sashko-guz/mage/internal/format"
 	"github.com/sashko-guz/mage/internal/logger"
 	"lukechampine.com/blake3"
 )
 
-// formatBytes converts bytes to human-readable format
-func formatBytes(bytes int64) string {
-	if bytes == 0 {
-		return "0"
-	}
-	units := []string{"B", "KB", "MB", "GB"}
-	size := float64(bytes)
-	unitIndex := 0
-	for size >= 1024 && unitIndex < len(units)-1 {
-		size /= 1024
-		unitIndex++
-	}
-	return fmt.Sprintf("%.2f%s", size, units[unitIndex])
-}
+// Per-cleanup-run budgets to bound CPU and I/O usage.
+// cleanupScanBudget limits how many LRU entries are inspected per run.
+// cleanupRemoveBudget limits how many entries are collected for removal (expired or missing files).
+const (
+	cleanupScanBudget   = 4096
+	cleanupRemoveBudget = 512
+)
+
+// -------------------------------------------------------------------
+// Types
+// -------------------------------------------------------------------
 
 // DiskCache provides disk-based caching with TTL support and LRU eviction.
 type DiskCache struct {
@@ -64,6 +62,10 @@ type cleanupCandidate struct {
 	path string
 }
 
+// -------------------------------------------------------------------
+// Constructor
+// -------------------------------------------------------------------
+
 // NewDiskCache creates a new disk-based cache.
 // basePath is the directory where cache files will be stored.
 // ttl is the time-to-live for cache entries.
@@ -71,13 +73,9 @@ type cleanupCandidate struct {
 // maxSizeBytes is the maximum cache size in bytes (0 = unlimited).
 // maxItems is the maximum number of items tracked in the LRU index.
 func NewDiskCache(basePath string, ttl time.Duration, clearOnStartup bool, maxSizeBytes int64, maxItems int) (*DiskCache, error) {
-	absPath, err := filepath.Abs(basePath)
+	absPath, err := prepareCacheDir(basePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve cache path: %w", err)
-	}
-
-	if err := os.MkdirAll(absPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create cache directory: %w", err)
+		return nil, err
 	}
 
 	if maxItems <= 0 {
@@ -94,7 +92,6 @@ func NewDiskCache(basePath string, ttl time.Duration, clearOnStartup bool, maxSi
 	}
 
 	go dc.deleteWorker()
-
 	dc.initLRU()
 
 	if clearOnStartup {
@@ -109,9 +106,26 @@ func NewDiskCache(basePath string, ttl time.Duration, clearOnStartup bool, maxSi
 
 	go dc.cleanupExpired()
 
-	logger.Infof("[DiskCache] Initialized: BasePath=%s, TTL=%v, MaxSize=%v, MaxItems=%d", absPath, ttl, formatBytes(maxSizeBytes), dc.MaxItems)
+	logger.Infof("[DiskCache] Initialized: BasePath=%s, TTL=%v, MaxSize=%v, MaxItems=%d",
+		absPath, ttl, format.Bytes(maxSizeBytes), dc.MaxItems)
 	return dc, nil
 }
+
+// prepareCacheDir resolves the absolute path and ensures the directory exists.
+func prepareCacheDir(basePath string) (string, error) {
+	absPath, err := filepath.Abs(basePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve cache path: %w", err)
+	}
+	if err := os.MkdirAll(absPath, 0755); err != nil {
+		return "", fmt.Errorf("failed to create cache directory: %w", err)
+	}
+	return absPath, nil
+}
+
+// -------------------------------------------------------------------
+// Public API
+// -------------------------------------------------------------------
 
 // Get retrieves a cached item by key.
 func (dc *DiskCache) Get(key string) ([]byte, error) {
@@ -140,11 +154,7 @@ func (dc *DiskCache) Get(key string) ([]byte, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			dc.mu.Lock()
-			if stale, exists := dc.lru.Peek(hash); exists && stale.path == filePath {
-				dc.lru.Remove(hash)
-			}
-			dc.mu.Unlock()
+			dc.removeStaleLRUEntry(hash, filePath)
 			return nil, ErrCacheNotFound
 		}
 		logger.Errorf("[DiskCache] Error reading cache file %s: %v", filePath, err)
@@ -162,37 +172,17 @@ func (dc *DiskCache) Set(key string, data []byte) error {
 	expiresAt := time.Now().Add(dc.TTL)
 	hash := dc.getHash(key)
 	filePath := dc.getFilePathWithExpiration(hash, expiresAt)
-	dir := filepath.Dir(filePath)
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create cache directory structure: %w", err)
+	if err := atomicWriteFile(filePath, data); err != nil {
+		return err
 	}
 
-	tmpPath := filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write cache file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, filePath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("failed to rename cache file: %w", err)
-	}
-
-	entry := &cacheEntry{
+	dc.updateLRUEntry(&cacheEntry{
 		hash:      hash,
 		path:      filePath,
 		size:      int64(len(data)),
 		expiresAt: expiresAt,
-	}
-
-	dc.mu.Lock()
-	if _, exists := dc.lru.Peek(hash); exists {
-		dc.lru.Remove(hash)
-	}
-	dc.currentSize.Add(entry.size)
-	dc.lru.Add(hash, entry)
-	dc.evictForSizeLocked(2048)
-	dc.mu.Unlock()
+	})
 
 	logger.Debugf("[DiskCache] Cached data for key: %s (expires at %v, TTL: %v)", key, expiresAt.Format(time.RFC3339), dc.TTL)
 	return nil
@@ -203,7 +193,6 @@ func (dc *DiskCache) Delete(key string) error {
 	dc.notifyActivity()
 
 	hash := dc.getHash(key)
-
 	dc.mu.Lock()
 	dc.lru.Remove(hash)
 	dc.mu.Unlock()
@@ -218,7 +207,6 @@ func (dc *DiskCache) Clear() error {
 	if err := os.RemoveAll(dc.basePath); err != nil {
 		return fmt.Errorf("failed to remove cache directory: %w", err)
 	}
-
 	if err := os.MkdirAll(dc.basePath, 0755); err != nil {
 		return fmt.Errorf("failed to recreate cache directory: %w", err)
 	}
@@ -230,6 +218,10 @@ func (dc *DiskCache) Clear() error {
 	logger.Infof("[DiskCache] Cache cleared")
 	return nil
 }
+
+// -------------------------------------------------------------------
+// Cleanup goroutine
+// -------------------------------------------------------------------
 
 // cleanupExpired periodically removes expired cache entries.
 func (dc *DiskCache) cleanupExpired() {
@@ -254,37 +246,44 @@ func (dc *DiskCache) cleanupExpired() {
 			if interval > baseInterval {
 				stats := dc.performCleanup(false)
 				interval = baseInterval
-				if !timer.Stop() {
-					select {
-					case <-timer.C:
-					default:
-					}
-				}
-				timer.Reset(interval)
+				resetTimer(timer, interval)
 				logger.Debugf("[DiskCache] Activity detected, cleanup accelerated (removed=%d, entries=%d, size=%v)",
-					stats.removed, stats.currentCount, formatBytes(stats.currentSize))
+					stats.removed, stats.currentCount, format.Bytes(stats.currentSize))
 			}
 			continue
 		}
 
 		runs++
-
 		checkMissingFiles := runs%missingCheckEvery == 0
 		stats := dc.performCleanup(checkMissingFiles)
-
-		if stats.currentCount == 0 || stats.removed == 0 {
-			interval += idleStep
-			if interval > maxInterval {
-				interval = maxInterval
-			}
-		} else {
-			interval = baseInterval
-		}
-
+		interval = nextCleanupInterval(stats, interval, baseInterval, maxInterval, idleStep)
 		timer.Reset(interval)
 		logger.Debugf("[DiskCache] Cleanup scheduled in %v (removed=%d, entries=%d, size=%v)",
-			interval, stats.removed, stats.currentCount, formatBytes(stats.currentSize))
+			interval, stats.removed, stats.currentCount, format.Bytes(stats.currentSize))
 	}
+}
+
+// nextCleanupInterval backs off toward maxInterval when the cache is idle,
+// and resets to baseInterval when entries are being actively removed.
+func nextCleanupInterval(stats cleanupStats, current, base, max, step time.Duration) time.Duration {
+	if stats.currentCount == 0 || stats.removed == 0 {
+		if next := current + step; next < max {
+			return next
+		}
+		return max
+	}
+	return base
+}
+
+// resetTimer safely stops and resets a timer, draining any pending tick.
+func resetTimer(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	t.Reset(d)
 }
 
 func (dc *DiskCache) notifyActivity() {
@@ -294,104 +293,105 @@ func (dc *DiskCache) notifyActivity() {
 	}
 }
 
+// -------------------------------------------------------------------
+// Cleanup implementation
+// -------------------------------------------------------------------
+
 func (dc *DiskCache) performCleanup(checkMissingFiles bool) cleanupStats {
-	const (
-		scanBudget         = 1024
-		removeBudget       = 256
-		missingCheckBudget = 256
-	)
-
 	now := time.Now()
-	removed := 0
 
-	var expiredCandidates []cleanupCandidate
-	var existingCandidates []cleanupCandidate
+	expired, existing := dc.scanCandidates(now, checkMissingFiles)
 
+	var missing []cleanupCandidate
+	if checkMissingFiles {
+		missing = dc.findMissingFiles(existing)
+	}
+
+	removed, size, count := dc.pruneIndex(expired, missing, now)
+	return cleanupStats{removed: removed, currentSize: size, currentCount: count}
+}
+
+// scanCandidates walks a portion of the LRU index under the lock and returns:
+//   - expired: entries whose TTL has elapsed
+//   - existing: non-expired entries to be checked for missing files (only when collectExisting is true)
+func (dc *DiskCache) scanCandidates(now time.Time, collectExisting bool) (expired, existing []cleanupCandidate) {
 	dc.mu.Lock()
+	defer dc.mu.Unlock()
+
 	keys := dc.lru.Keys()
 	keyCount := len(keys)
-	if keyCount > 0 {
-		start := dc.cleanupPos % keyCount
-		scanCount := scanBudget
-		if keyCount < scanCount {
-			scanCount = keyCount
-		}
-
-		for i := 0; i < scanCount; i++ {
-			idx := (start + i) % keyCount
-			key := keys[idx]
-			entry, ok := dc.lru.Peek(key)
-			if !ok || entry == nil {
-				continue
-			}
-
-			candidate := cleanupCandidate{key: key, path: entry.path}
-			if now.After(entry.expiresAt) {
-				expiredCandidates = append(expiredCandidates, candidate)
-				if len(expiredCandidates) >= removeBudget {
-					break
-				}
-				continue
-			}
-
-			if checkMissingFiles && len(existingCandidates) < missingCheckBudget {
-				existingCandidates = append(existingCandidates, candidate)
-			}
-		}
-
-		dc.cleanupPos = (start + scanCount) % keyCount
-	} else {
+	if keyCount == 0 {
 		dc.cleanupPos = 0
-	}
-	dc.mu.Unlock()
-
-	var missingCandidates []cleanupCandidate
-	if checkMissingFiles {
-		for _, candidate := range existingCandidates {
-			if _, err := os.Stat(candidate.path); err != nil && os.IsNotExist(err) {
-				missingCandidates = append(missingCandidates, candidate)
-				if len(missingCandidates) >= removeBudget {
-					break
-				}
-			}
-		}
+		return
 	}
 
-	dc.mu.Lock()
-	for _, candidate := range expiredCandidates {
-		entry, ok := dc.lru.Peek(candidate.key)
+	start := dc.cleanupPos % keyCount
+	scanCount := min(cleanupScanBudget, keyCount)
+
+	for i := range scanCount {
+		key := keys[(start+i)%keyCount]
+		entry, ok := dc.lru.Peek(key)
 		if !ok || entry == nil {
 			continue
 		}
-		if entry.path == candidate.path && now.After(entry.expiresAt) {
-			dc.lru.Remove(candidate.key)
+
+		c := cleanupCandidate{key: key, path: entry.path}
+		if now.After(entry.expiresAt) {
+			expired = append(expired, c)
+			if len(expired) >= cleanupRemoveBudget {
+				break
+			}
+		} else if collectExisting && len(existing) < cleanupRemoveBudget {
+			existing = append(existing, c)
+		}
+	}
+
+	dc.cleanupPos = (start + scanCount) % keyCount
+	return
+}
+
+// findMissingFiles returns entries from candidates whose backing file no longer exists on disk.
+func (dc *DiskCache) findMissingFiles(candidates []cleanupCandidate) []cleanupCandidate {
+	var missing []cleanupCandidate
+	for _, c := range candidates {
+		if _, err := os.Stat(c.path); os.IsNotExist(err) {
+			missing = append(missing, c)
+			if len(missing) >= cleanupRemoveBudget {
+				break
+			}
+		}
+	}
+	return missing
+}
+
+// pruneIndex removes expired and missing entries from the LRU index under the lock,
+// then evicts for size. Returns removal count, current cache size, and entry count.
+func (dc *DiskCache) pruneIndex(expired, missing []cleanupCandidate, now time.Time) (removed int, size int64, count int) {
+	dc.mu.Lock()
+
+	for _, c := range expired {
+		if entry, ok := dc.lru.Peek(c.key); ok && entry != nil && entry.path == c.path && now.After(entry.expiresAt) {
+			dc.lru.Remove(c.key)
 			removed++
 		}
 	}
-
-	for _, candidate := range missingCandidates {
-		entry, ok := dc.lru.Peek(candidate.key)
-		if !ok || entry == nil {
-			continue
-		}
-		if entry.path == candidate.path {
-			dc.lru.Remove(candidate.key)
+	for _, c := range missing {
+		if entry, ok := dc.lru.Peek(c.key); ok && entry != nil && entry.path == c.path {
+			dc.lru.Remove(c.key)
 			removed++
 		}
 	}
 
 	removed += dc.evictForSizeLocked(1024)
-
-	currentSize := dc.currentSize.Load()
-	currentCount := dc.lru.Len()
+	size = dc.currentSize.Load()
+	count = dc.lru.Len()
 	dc.mu.Unlock()
-
-	return cleanupStats{
-		removed:      removed,
-		currentSize:  currentSize,
-		currentCount: currentCount,
-	}
+	return
 }
+
+// -------------------------------------------------------------------
+// Disk index management
+// -------------------------------------------------------------------
 
 func (dc *DiskCache) loadIndexFromDisk() {
 	now := time.Now()
@@ -399,49 +399,50 @@ func (dc *DiskCache) loadIndexFromDisk() {
 	deletedCount := 0
 
 	_ = filepath.Walk(dc.basePath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+		if err != nil || info.IsDir() || filepath.Ext(path) != ".cache" {
 			return nil
 		}
-		if info.IsDir() || filepath.Ext(path) != ".cache" {
-			return nil
-		}
-
 		totalScanned++
-		hash, expiresAt, parseErr := dc.parseCacheFilename(filepath.Base(path))
-		if parseErr != nil || now.After(expiresAt) {
-			if removeErr := os.Remove(path); removeErr == nil || os.IsNotExist(removeErr) {
-				deletedCount++
-			}
-			dc.cleanupEmptyDirs(filepath.Dir(path))
-			return nil
+		if dc.processIndexFile(path, info, now) {
+			deletedCount++
 		}
-
-		entry := &cacheEntry{
-			hash:      hash,
-			path:      path,
-			size:      info.Size(),
-			expiresAt: expiresAt,
-		}
-
-		dc.mu.Lock()
-		dc.currentSize.Add(entry.size)
-		dc.lru.Add(hash, entry)
-		dc.evictForSizeLocked(2048)
-		dc.mu.Unlock()
-
 		return nil
 	})
 
 	logger.Infof("[DiskCache] Startup index load complete: scanned=%d, removed=%d, entries=%d, size=%v",
-		totalScanned, deletedCount, dc.lru.Len(), formatBytes(dc.currentSize.Load()))
+		totalScanned, deletedCount, dc.lru.Len(), format.Bytes(dc.currentSize.Load()))
 }
 
+// processIndexFile attempts to index a single cache file.
+// Returns true if the file was removed (expired or unparseable), false if it was indexed.
+func (dc *DiskCache) processIndexFile(path string, info os.FileInfo, now time.Time) (deleted bool) {
+	hash, expiresAt, err := dc.parseCacheFilename(filepath.Base(path))
+	if err != nil || now.After(expiresAt) {
+		if removeErr := os.Remove(path); removeErr == nil || os.IsNotExist(removeErr) {
+			deleted = true
+		}
+		dc.cleanupEmptyDirs(filepath.Dir(path))
+		return
+	}
+
+	dc.updateLRUEntry(&cacheEntry{
+		hash:      hash,
+		path:      path,
+		size:      info.Size(),
+		expiresAt: expiresAt,
+	})
+	return false
+}
+
+// -------------------------------------------------------------------
+// LRU management
+// -------------------------------------------------------------------
+
 func (dc *DiskCache) initLRU() {
-	lruIndex, err := simplelru.NewLRU[string, *cacheEntry](dc.MaxItems, func(_ string, entry *cacheEntry) {
+	lruIndex, err := simplelru.NewLRU(dc.MaxItems, func(_ string, entry *cacheEntry) {
 		if entry == nil {
 			return
 		}
-
 		dc.currentSize.Add(-entry.size)
 		dc.enqueueDelete(entry.path)
 	})
@@ -451,6 +452,29 @@ func (dc *DiskCache) initLRU() {
 	dc.lru = lruIndex
 }
 
+// updateLRUEntry registers or replaces an entry in the LRU index, then evicts if over the size limit.
+func (dc *DiskCache) updateLRUEntry(entry *cacheEntry) {
+	dc.mu.Lock()
+	if _, exists := dc.lru.Peek(entry.hash); exists {
+		dc.lru.Remove(entry.hash)
+	}
+	dc.currentSize.Add(entry.size)
+	dc.lru.Add(entry.hash, entry)
+	dc.evictForSizeLocked(2048)
+	dc.mu.Unlock()
+}
+
+// removeStaleLRUEntry removes the LRU entry for hash if it still points to the given path.
+func (dc *DiskCache) removeStaleLRUEntry(hash, path string) {
+	dc.mu.Lock()
+	if stale, exists := dc.lru.Peek(hash); exists && stale.path == path {
+		dc.lru.Remove(hash)
+	}
+	dc.mu.Unlock()
+}
+
+// evictForSizeLocked evicts LRU entries until the cache is below the low-water mark.
+// Must be called with dc.mu held.
 func (dc *DiskCache) evictForSizeLocked(maxRemovals int) int {
 	high, low := dc.sizeWatermarks()
 	if high <= 0 || dc.currentSize.Load() <= high {
@@ -462,14 +486,12 @@ func (dc *DiskCache) evictForSizeLocked(maxRemovals int) int {
 		if maxRemovals > 0 && removed >= maxRemovals {
 			break
 		}
-
 		_, _, ok := dc.lru.RemoveOldest()
 		if !ok {
 			break
 		}
 		removed++
 	}
-
 	return removed
 }
 
@@ -490,8 +512,27 @@ func (dc *DiskCache) sizeWatermarks() (high int64, low int64) {
 			low = high
 		}
 	}
-
 	return high, low
+}
+
+// -------------------------------------------------------------------
+// File & delete helpers
+// -------------------------------------------------------------------
+
+// atomicWriteFile writes data to a temp file and atomically renames it into place.
+func atomicWriteFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create cache directory structure: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("failed to write cache file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("failed to rename cache file: %w", err)
+	}
+	return nil
 }
 
 func (dc *DiskCache) enqueueDelete(path string) {
@@ -513,34 +554,33 @@ func (dc *DiskCache) deleteFile(path string) {
 		logger.Errorf("[DiskCache] Error deleting evicted file %s: %v", path, err)
 		return
 	}
-
 	dc.cleanupEmptyDirs(filepath.Dir(path))
 }
 
-// getHash generates BLAKE3 hash from key.
+// -------------------------------------------------------------------
+// Path & hash utilities
+// -------------------------------------------------------------------
+
+// getHash generates a BLAKE3 hash from key.
 func (dc *DiskCache) getHash(key string) string {
 	hash := blake3.Sum256([]byte(key))
 	return hex.EncodeToString(hash[:])
 }
 
-// getDirPath generates directory path using hierarchical structure.
-// Uses nginx-style levels=2:2 to limit files per directory.
+// getDirPath generates a hierarchical directory path using nginx-style levels=2:2
+// to limit files per directory.
 func (dc *DiskCache) getDirPath(hashStr string) string {
 	n := len(hashStr)
-	level1 := hashStr[n-2 : n]
-	level2 := hashStr[n-4 : n-2]
-	return filepath.Join(dc.basePath, level1, level2)
+	return filepath.Join(dc.basePath, hashStr[n-2:n], hashStr[n-4:n-2])
 }
 
-// getFilePathWithExpiration generates cache file path with expiration in filename.
+// getFilePathWithExpiration generates a cache file path with the expiry timestamp encoded in the name.
 // Format: basePath/f1/8e/{hash}_{unixTimestamp}.cache
 func (dc *DiskCache) getFilePathWithExpiration(hashStr string, expiresAt time.Time) string {
-	dir := dc.getDirPath(hashStr)
-	fileName := fmt.Sprintf("%s_%d.cache", hashStr, expiresAt.Unix())
-	return filepath.Join(dir, fileName)
+	return filepath.Join(dc.getDirPath(hashStr), fmt.Sprintf("%s_%d.cache", hashStr, expiresAt.Unix()))
 }
 
-// parseCacheFilename extracts hash and expiration timestamp from filename.
+// parseCacheFilename extracts hash and expiration timestamp from a cache filename.
 // Format: {hash}_{unixTimestamp}.cache
 func (dc *DiskCache) parseCacheFilename(filename string) (string, time.Time, error) {
 	name := strings.TrimSuffix(filename, ".cache")
@@ -549,14 +589,11 @@ func (dc *DiskCache) parseCacheFilename(filename string) (string, time.Time, err
 		return "", time.Time{}, fmt.Errorf("invalid filename format: %s", filename)
 	}
 
-	hash := name[:lastUnderscore]
-	timestampStr := name[lastUnderscore+1:]
-	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
+	timestamp, err := strconv.ParseInt(name[lastUnderscore+1:], 10, 64)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("invalid timestamp in filename: %w", err)
 	}
-
-	return hash, time.Unix(timestamp, 0), nil
+	return name[:lastUnderscore], time.Unix(timestamp, 0), nil
 }
 
 // cleanupEmptyDirs removes empty directories up to the base path.
@@ -564,12 +601,10 @@ func (dc *DiskCache) cleanupEmptyDirs(dir string) {
 	if dir == dc.basePath || !strings.HasPrefix(dir, dc.basePath) {
 		return
 	}
-
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) > 0 {
 		return
 	}
-
 	if err := os.Remove(dir); err == nil {
 		dc.cleanupEmptyDirs(filepath.Dir(dir))
 	}
