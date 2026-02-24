@@ -1,7 +1,5 @@
 package cache
 
-import "errors"
+import "github.com/sashko-guz/mage/internal/cache/disk"
 
-var (
-	ErrCacheNotFound = errors.New("cache entry not found")
-)
+var ErrCacheNotFound = disk.ErrNotFound
