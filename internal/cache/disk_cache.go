@@ -258,8 +258,8 @@ func (dc *DiskCache) cleanupExpired() {
 		stats := dc.performCleanup(checkMissingFiles)
 		interval = nextCleanupInterval(stats, interval, baseInterval, maxInterval, idleStep)
 		timer.Reset(interval)
-		logger.Debugf("[DiskCache] Cleanup scheduled in %v (removed=%d, entries=%d, size=%v)",
-			interval, stats.removed, stats.currentCount, format.Bytes(stats.currentSize))
+		logger.Debugf("[DiskCache] Cleanup scheduled in directory %s with interval %v (removed=%d, entries=%d, size=%v)",
+			dc.basePath, interval, stats.removed, stats.currentCount, format.Bytes(stats.currentSize))
 	}
 }
 
