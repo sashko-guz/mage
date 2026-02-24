@@ -127,16 +127,10 @@ func (cs *CachedStorage) initSourceWorkers(numWorkers, queueSize int) {
 func (cs *CachedStorage) sourceWriter() {
 	defer cs.sourceWriteMu.Done()
 
-	for {
-		select {
-		case task, ok := <-cs.sourceWriteQueue:
-			if !ok {
-				return // Channel closed, exit gracefully
-			}
-			if cs.sourceDiskCache != nil {
-				if err := cs.sourceDiskCache.Set(task.key, task.data); err != nil {
-					logger.Errorf("[CachedStorage] Error writing source to disk cache: %v", err)
-				}
+	for task := range cs.sourceWriteQueue {
+		if cs.sourceDiskCache != nil {
+			if err := cs.sourceDiskCache.Set(task.key, task.data); err != nil {
+				logger.Errorf("[CachedStorage] Error writing source to disk cache: %v", err)
 			}
 		}
 	}
@@ -241,16 +235,10 @@ func (cs *CachedStorage) initThumbWorkers(numWorkers, queueSize int) {
 func (cs *CachedStorage) thumbWriter() {
 	defer cs.thumbWriteMu.Done()
 
-	for {
-		select {
-		case task, ok := <-cs.thumbWriteQueue:
-			if !ok {
-				return // Channel closed, exit gracefully
-			}
-			if cs.thumbDiskCache != nil {
-				if err := cs.thumbDiskCache.Set(task.key, task.data); err != nil {
-					logger.Errorf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
-				}
+	for task := range cs.thumbWriteQueue {
+		if cs.thumbDiskCache != nil {
+			if err := cs.thumbDiskCache.Set(task.key, task.data); err != nil {
+				logger.Errorf("[CachedStorage] Error writing thumbnail to disk cache: %v", err)
 			}
 		}
 	}
