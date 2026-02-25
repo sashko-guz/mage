@@ -12,7 +12,7 @@ services:
       # Mount .env file for environment variables
       - ./.env:/app/.env:ro
       # Mount storage configuration
-      - ./storage.docker.json:/app/storage.docker.json:ro
+      - ./storage.docker.json:/app/storage.json:ro
       # Mount local storage data (portable relative paths)
       - ./.data:/app/.data
       # Mount cache directories
