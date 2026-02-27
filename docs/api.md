@@ -91,7 +91,7 @@ With alias:
 With signature and alias:
 
 ```text
-/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(avif);quality(90)/path/to/image.jpg/as/card.avif
+/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:quality(70)/path/to/image.jpg/as/card.avif
 ```
 
 ## Signature Generation
