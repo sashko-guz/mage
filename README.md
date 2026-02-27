@@ -26,8 +26,6 @@ cp storage.local.example.json storage.json
 go run ./cmd/server
 ```
 
-You can configure runtime settings from `.env` (for example `LOG_LEVEL=error`).
-
 ## Documentation
 
 - [Getting Started](docs/getting-started.md)
