@@ -80,11 +80,9 @@ ENV VIPS_WARNING=0
 ENV MALLOC_ARENA_MAX=2
 ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so
 
-ENV PORT=8080
-
 # use unprivileged user
 USER nobody
 
 ENTRYPOINT ["/usr/local/bin/mage"]
 
-EXPOSE ${PORT}
+EXPOSE 8080
