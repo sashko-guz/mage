@@ -28,18 +28,25 @@ type ThumbnailHandler struct {
 	processor      *processor.ImageProcessor
 	singleflight   *singleflight.Group
 	processSem     chan struct{}
-	signer         *signature.Signature // URL signature handler
-	maxInputSize   int                  // max input image size in bytes
-	cachingEnabled bool                 // true if storage supports caching
+	signer *signature.Signature // URL signature handler
+	cfg    ThumbnailHandlerConfig
 }
 
-func NewThumbnailHandler(stor storageDrivers.Storage, proc *processor.ImageProcessor, signatureCfg signature.Config, maxInputSize int) (*ThumbnailHandler, error) {
-	_, cachingEnabled := stor.(*storage.CachedStorage)
+// ThumbnailHandlerConfig holds configuration for the thumbnail handler.
+type ThumbnailHandlerConfig struct {
+	SignatureCfg   signature.Config
+	MaxInputSize   int    // max input image size in bytes
+	CacheControlResponseHeader string // Cache-Control header value
+	CachingEnabled bool   // true if storage supports caching
+}
+
+func NewThumbnailHandler(stor storageDrivers.Storage, proc *processor.ImageProcessor, cfg ThumbnailHandlerConfig) (*ThumbnailHandler, error) {
+	_, cfg.CachingEnabled = stor.(*storage.CachedStorage)
 
 	maxConcurrent := resolveMaxConcurrent()
-	logger.Infof("[ThumbnailHandler] Max input image size: %d MB", maxInputSize/(1024*1024))
+	logger.Infof("[ThumbnailHandler] Max input image size: %d MB", cfg.MaxInputSize/(1024*1024))
 
-	signer, err := buildSigner(signatureCfg)
+	signer, err := buildSigner(cfg.SignatureCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -50,8 +57,7 @@ func NewThumbnailHandler(stor storageDrivers.Storage, proc *processor.ImageProce
 		singleflight:   &singleflight.Group{},
 		processSem:     make(chan struct{}, maxConcurrent),
 		signer:         signer,
-		maxInputSize:   maxInputSize,
-		cachingEnabled: cachingEnabled,
+		cfg: cfg,
 	}, nil
 }
 
@@ -129,7 +135,7 @@ func (h *ThumbnailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // serveCachedThumbnail checks the thumbnail cache and writes the response if a cached entry is
 // found. Returns true when the response has been served and no further processing is needed.
 func (h *ThumbnailHandler) serveCachedThumbnail(w http.ResponseWriter, cacheKey string) bool {
-	if !h.cachingEnabled {
+	if !h.cfg.CachingEnabled {
 		return false
 	}
 
@@ -196,7 +202,7 @@ func (h *ThumbnailHandler) logProcessingRequest(req *operations.Request, urlPath
 	}
 
 	prefix := ""
-	if h.cachingEnabled {
+	if h.cfg.CachingEnabled {
 		prefix = "Cache MISS - "
 	}
 
@@ -228,10 +234,10 @@ func (h *ThumbnailHandler) fetchAndProcess(r *http.Request, req *operations.Requ
 		return nil, err
 	}
 
-	if h.maxInputSize > 0 && len(imageData) > h.maxInputSize {
+	if h.cfg.MaxInputSize > 0 && len(imageData) > h.cfg.MaxInputSize {
 		logger.Warnf("[ThumbnailHandler] Source image too large: path=%s, size=%d bytes, limit=%d bytes",
-			req.Path, len(imageData), h.maxInputSize)
-		return nil, &inputImageTooLargeError{Actual: len(imageData), Limit: h.maxInputSize}
+			req.Path, len(imageData), h.cfg.MaxInputSize)
+		return nil, &inputImageTooLargeError{Actual: len(imageData), Limit: h.cfg.MaxInputSize}
 	}
 
 	thumbnail, contentType, err := h.processor.CreateThumbnail(imageData, req)
@@ -246,7 +252,7 @@ func (h *ThumbnailHandler) fetchAndProcess(r *http.Request, req *operations.Requ
 // cacheResult stores the thumbnail in the synchronous (memory) cache and returns the encoded
 // binary data so the caller can schedule an async disk write afterwards.
 func (h *ThumbnailHandler) cacheResult(cacheKey string, result any, err error) []byte {
-	if !h.cachingEnabled || err != nil || result == nil {
+	if !h.cfg.CachingEnabled || err != nil || result == nil {
 		return nil
 	}
 
@@ -283,11 +289,11 @@ func (h *ThumbnailHandler) writeError(w http.ResponseWriter, r *http.Request, er
 }
 
 // writeThumbnailResponse sends the thumbnail bytes with standard caching headers.
-// cacheStatus is used as the X-Cache header value ("HIT" or "MISS").
+// cacheStatus is used as the X-Mage-Cache header value ("HIT" or "MISS").
 func (h *ThumbnailHandler) writeThumbnailResponse(w http.ResponseWriter, thumbnail *ThumbnailResult, cacheStatus string) {
 	w.Header().Set("Content-Type", thumbnail.ContentType)
-	w.Header().Set("Cache-Control", "public, max-age=31536000") // 1 year
-	w.Header().Set("X-Cache", cacheStatus)
+	w.Header().Set("Cache-Control", h.cfg.CacheControlResponseHeader)
+	w.Header().Set("X-Mage-Cache", cacheStatus)
 	w.Header().Set("Content-Length", strconv.Itoa(len(thumbnail.Data)))
 
 	if _, err := w.Write(thumbnail.Data); err != nil {

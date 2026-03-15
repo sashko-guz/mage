@@ -22,6 +22,7 @@ type Config struct {
 	MaxResizeWidth      int
 	MaxResizeHeight     int
 	MaxResizeResolution int
+	CacheControlResponseHeader string
 }
 
 func Load() *Config {
@@ -45,6 +46,7 @@ func Load() *Config {
 		MaxResizeWidth:      maxResizeWidth,
 		MaxResizeHeight:     maxResizeHeight,
 		MaxResizeResolution: maxResizeResolution,
+		CacheControlResponseHeader: getEnv("CACHE_CONTROL_RESPONSE_HEADER", "public, max-age=31536000"),
 	}
 }
 

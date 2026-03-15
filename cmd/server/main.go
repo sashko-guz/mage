@@ -102,14 +102,16 @@ func initializeStorage(configPath string) (storageDrivers.Storage, error) {
 
 func setupServer(cfg *config.Config, stor storageDrivers.Storage) *http.Server {
 	imageProcessor := processor.NewImageProcessor()
-	signatureCfg := signature.Config{
-		SecretKey:     cfg.SignatureSecret,
-		Algorithm:     cfg.SignatureAlgorithm,
-		ExtractStart:  cfg.SignatureStart,
-		ExtractLength: cfg.SignatureLength,
-	}
-
-	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, signatureCfg, cfg.MaxInputImageSize)
+	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, handler.ThumbnailHandlerConfig{
+		SignatureCfg: signature.Config{
+			SecretKey:     cfg.SignatureSecret,
+			Algorithm:     cfg.SignatureAlgorithm,
+			ExtractStart:  cfg.SignatureStart,
+			ExtractLength: cfg.SignatureLength,
+		},
+		MaxInputSize: cfg.MaxInputImageSize,
+		CacheControlResponseHeader: cfg.CacheControlResponseHeader,
+	})
 	if err != nil {
 		logger.Fatalf("[Server] Failed to initialize thumbnail handler: %v", err)
 	}

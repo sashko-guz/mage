@@ -19,6 +19,7 @@
 - `MAX_RESIZE_WIDTH` - Maximum allowed resize width in pixels (default: `5120`)
 - `MAX_RESIZE_HEIGHT` - Maximum allowed resize height in pixels (default: `5120`)
 - `MAX_RESIZE_RESOLUTION` - Maximum allowed total pixel area (width × height) (default: `26214400`, i.e. 5120²)
+- `CACHE_CONTROL_RESPONSE_HEADER` - Value of the `Cache-Control` header sent with every thumbnail response (default: `public, max-age=31536000`)
 
 ## Storage Configuration
 
