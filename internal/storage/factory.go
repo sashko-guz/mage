@@ -53,7 +53,7 @@ func createBaseStorage(cfg *StorageConfig) (drivers.Storage, error) {
 		if cfg.BaseURL != "" && (cfg.AccessKey == "" || cfg.SecretKey == "") {
 			return nil, fmt.Errorf("access_key and secret_key are required when using base_url for S3-compatible storage")
 		}
-		return drivers.NewS3Client(cfg.Region, cfg.AccessKey, cfg.SecretKey, cfg.Bucket, cfg.BaseURL, cfg.S3HTTPConfig)
+		return drivers.NewS3Client(cfg.Region, cfg.AccessKey, cfg.SecretKey, cfg.Bucket, cfg.BaseURL, bool(cfg.UsePathStyle), cfg.S3HTTPConfig)
 
 	case DriverLocal:
 		if cfg.Root == "" {

@@ -11,6 +11,8 @@ For high-throughput S3 access, configure `s3_http_config` in storage config.
   "region": "${S3_REGION}",
   "access_key": "${S3_ACCESS_KEY}",
   "secret_key": "${S3_SECRET_KEY}",
+  "base_url": "${S3_BASE_URL}",
+  "use_path_style": "${S3_USE_PATH_STYLE}",
   "s3_http_config": {
     "max_idle_conns": 100,
     "max_idle_conns_per_host": 100,

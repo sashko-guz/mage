@@ -29,6 +29,9 @@
 - `S3_REGION` - S3 region, referenced as `${S3_REGION}` in storage config
 - `S3_ACCESS_KEY` - S3 access key, referenced as `${S3_ACCESS_KEY}` in storage config (optional, leave empty to use IAM role)
 - `S3_SECRET_KEY` - S3 secret key, referenced as `${S3_SECRET_KEY}` in storage config (optional, leave empty to use IAM role)
+- `S3_BASE_URL` - Custom S3-compatible endpoint, referenced as `${S3_BASE_URL}` in storage config (optional, for MinIO and other S3-compatible storage)
+- `S3_USE_PATH_STYLE` - Use path-style S3 addressing (`true`/`false`), referenced as `"${S3_USE_PATH_STYLE}"` in storage config (default: `false`)
+- `STORAGE_ROOT` - Root directory for local driver, referenced as `${STORAGE_ROOT}` in storage config
 - `DOCKER_MEMORY_LIMIT` - Container memory limit used by docker-compose (default: `2g`)
 - `DOCKER_CPU_LIMIT` - Container CPU limit used by docker-compose (default: `0` = unlimited)
 
@@ -48,7 +51,7 @@ Example files:
 
 ### Local Driver
 
-- `root` - Root directory path (required)
+- `root` - Root directory path (required — use env var reference `${STORAGE_ROOT}`)
 
 ### S3 Driver
 
@@ -56,7 +59,8 @@ Example files:
 - `region` - AWS region (required — use env var reference, see below)
 - `access_key` - Access key (optional — use env var reference, see below)
 - `secret_key` - Secret key (optional — use env var reference, see below)
-- `base_url` - Custom S3-compatible endpoint (optional)
+- `base_url` - Custom S3-compatible endpoint, e.g. MinIO (optional — use env var reference, see below)
+- `use_path_style` - Use path-style S3 addressing (default: `false`; set to `true` for MinIO and most S3-compatible storage — use env var reference `"${S3_USE_PATH_STYLE}"`)
 - `s3_http_config` - Optional HTTP transport tuning
 
 #### S3 credentials
@@ -69,13 +73,15 @@ To avoid storing credentials in the JSON file, use `${VAR}` references — they 
   "bucket": "${S3_BUCKET}",
   "region": "${S3_REGION}",
   "access_key": "${S3_ACCESS_KEY}",
-  "secret_key": "${S3_SECRET_KEY}"
+  "secret_key": "${S3_SECRET_KEY}",
+  "base_url": "${S3_BASE_URL}",
+  "use_path_style": "${S3_USE_PATH_STYLE}"
 }
 ```
 
-Set `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, and `S3_SECRET_KEY` in your `.env` file. The JSON config itself contains no secrets and is safe to commit.
+Set `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, and optionally `S3_BASE_URL` in your `.env` file. The JSON config itself contains no secrets and is safe to commit.
 
-If both fields are empty (or omitted), the AWS SDK credential chain is used — IAM roles, instance profiles, ECS task roles, `~/.aws/credentials`, etc.
+For MinIO or S3-compatible storage, set `use_path_style` to `true` and provide `S3_BASE_URL`.
 
 ### Cache Configuration
 

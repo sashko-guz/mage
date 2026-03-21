@@ -1,6 +1,6 @@
 {
   "driver": "local",
-  "root": "./.data",
+  "root": "${STORAGE_ROOT}",
   "cache": {
     "sources": {
       "memory": {

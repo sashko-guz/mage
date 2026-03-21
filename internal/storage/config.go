@@ -4,10 +4,34 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/sashko-guz/mage/internal/storage/drivers"
 )
+
+// FlexBool is a bool that can be unmarshalled from either a JSON boolean or a
+// JSON string ("true"/"false"). This allows use of ${ENV_VAR} references that
+// are expanded by os.ExpandEnv before JSON parsing, which produces a quoted string.
+type FlexBool bool
+
+func (f *FlexBool) UnmarshalJSON(data []byte) error {
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		*f = FlexBool(b)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			return fmt.Errorf("use_path_style: cannot parse %q as bool", s)
+		}
+		*f = FlexBool(b)
+		return nil
+	}
+	return fmt.Errorf("use_path_style: cannot unmarshal %s into bool", data)
+}
 
 type StorageDriver string
 
@@ -23,11 +47,12 @@ type StorageConfig struct {
 	Cache *StorageCacheConfig `json:"cache,omitempty"`
 
 	// S3 specific fields
-	Bucket    string `json:"bucket,omitempty"`
-	Region    string `json:"region,omitempty"`
-	AccessKey string `json:"access_key,omitempty"`
-	SecretKey string `json:"secret_key,omitempty"`
-	BaseURL   string `json:"base_url,omitempty"` // Custom endpoint for S3-compatible storage
+	Bucket       string   `json:"bucket,omitempty"`
+	Region       string   `json:"region,omitempty"`
+	AccessKey    string   `json:"access_key,omitempty"`
+	SecretKey    string   `json:"secret_key,omitempty"`
+	BaseURL      string   `json:"base_url,omitempty"`       // Custom endpoint for S3-compatible storage
+	UsePathStyle FlexBool `json:"use_path_style,omitempty"` // Use path-style addressing (required for MinIO and most S3-compatible storage)
 
 	// S3 HTTP client tuning (optional, with sensible defaults)
 	S3HTTPConfig *drivers.S3HTTPConfig `json:"s3_http_config,omitempty"`

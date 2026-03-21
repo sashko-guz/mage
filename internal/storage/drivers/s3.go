@@ -103,7 +103,7 @@ func createOptimizedHTTPClient(httpConfig *S3HTTPConfig) *http.Client {
 	return client
 }
 
-func NewS3Client(region, accessKey, secretKey, bucket, baseURL string, httpConfig *S3HTTPConfig) (*S3Client, error) {
+func NewS3Client(region, accessKey, secretKey, bucket, baseURL string, usePathStyle bool, httpConfig *S3HTTPConfig) (*S3Client, error) {
 	var s3Client *s3.Client
 
 	// Create optimized HTTP client with config
@@ -117,7 +117,7 @@ func NewS3Client(region, accessKey, secretKey, bucket, baseURL string, httpConfi
 			Region:       region,
 			Credentials:  credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 			BaseEndpoint: aws.String(baseURL),
-			UsePathStyle: true,
+			UsePathStyle: usePathStyle,
 			HTTPClient:   httpClient,
 		})
 	} else {
@@ -140,7 +140,7 @@ func NewS3Client(region, accessKey, secretKey, bucket, baseURL string, httpConfi
 		}
 
 		s3Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
-			o.UsePathStyle = true
+			o.UsePathStyle = usePathStyle
 		})
 	}
 
