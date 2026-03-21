@@ -3,10 +3,16 @@
 ```text
 .
 ├── cmd/
-│   └── server/              # Application entry point
+│   └── server/              # Application entry point (package main)
+│       ├── main.go          # Entry point, run loop, graceful shutdown
+│       ├── server.go        # HTTP server setup, routing, CORS
+│       ├── storage.go       # Storage initialization
+│       ├── vips.go          # libvips configuration
+│       └── logging.go       # Logging setup, server info output
 ├── internal/
-│   ├── cache/               # In-memory (ristretto) and disk cache with TTL & LRU eviction
-│   │   └── disk/            # Disk cache implementation: file I/O, index, cleanup goroutine
+│   ├── cache/               # In-memory and disk cache with TTL & LRU eviction
+│   │   ├── disk/            # Disk cache implementation: file I/O, index, cleanup goroutine
+│   │   └── memory/          # In-memory cache implementation
 │   ├── config/              # Environment/server config loading
 │   ├── format/              # Shared formatting utilities
 │   ├── handler/             # HTTP request handling
@@ -19,6 +25,7 @@
 │   └── storage/             # Storage abstraction + cached storage wrapper
 │       └── drivers/         # Local filesystem and S3-compatible drivers
 ├── docs/                    # Project documentation
+├── .dockerignore            # Docker build context exclusions
 ├── .env.example             # Example environment variables
 ├── docker-compose.yml       # Local/dev service orchestration
 ├── README.md                # Main project documentation

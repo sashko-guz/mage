@@ -13,6 +13,11 @@ type Config struct {
 	SignatureStart             int
 	SignatureLength            int
 	Port                       string
+	CORSAllowOrigin            string
+	CORSAllowMethods           string
+	CORSAllowHeaders           string
+	CORSExposeHeaders          string
+	CORSMaxAge                 int
 	ReadTimeout                time.Duration
 	ReadHeaderTimeout          time.Duration
 	WriteTimeout               time.Duration
@@ -37,6 +42,11 @@ func Load() *Config {
 		SignatureStart:             getEnvIntMin("SIGNATURE_EXTRACT_START", 0, 0),
 		SignatureLength:            getEnvIntMin("SIGNATURE_LENGTH", 16, 1),
 		Port:                       getEnv("PORT", "8080"),
+		CORSAllowOrigin:            getEnv("CORS_ALLOW_ORIGIN", "*"),
+		CORSAllowMethods:           getEnv("CORS_ALLOW_METHODS", "GET, HEAD, OPTIONS"),
+		CORSAllowHeaders:           getEnv("CORS_ALLOW_HEADERS", "Origin, Content-Type, Accept, Authorization"),
+		CORSExposeHeaders:          getEnv("CORS_EXPOSE_HEADERS", "Content-Type, Content-Length, Cache-Control, X-Mage-Cache"),
+		CORSMaxAge:                 getEnvInt("CORS_MAX_AGE", 86400),
 		ReadTimeout:                getEnvDurationSeconds("HTTP_READ_TIMEOUT_SECONDS", 5),
 		ReadHeaderTimeout:          getEnvDurationSeconds("HTTP_READ_HEADER_TIMEOUT_SECONDS", 2),
 		WriteTimeout:               getEnvDurationSeconds("HTTP_WRITE_TIMEOUT_SECONDS", 30),

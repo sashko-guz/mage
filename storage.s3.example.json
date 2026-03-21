@@ -1,9 +1,9 @@
 {
   "driver": "s3",
-  "bucket": "my-bucket",
-  "region": "us-west-1",
-  "access_key": "YOUR_ACCESS_KEY",
-  "secret_key": "YOUR_SECRET_KEY",
+  "bucket": "${S3_BUCKET}",
+  "region": "${S3_REGION}",
+  "access_key": "${S3_ACCESS_KEY}",
+  "secret_key": "${S3_SECRET_KEY}",
   "s3_http_config": {
     "max_idle_conns": 150,
     "max_idle_conns_per_host": 150,

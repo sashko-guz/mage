@@ -1,23 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/cshum/vipsgen/vips"
 	"github.com/joho/godotenv"
 	"github.com/sashko-guz/mage/internal/config"
-	"github.com/sashko-guz/mage/internal/handler"
 	"github.com/sashko-guz/mage/internal/logger"
 	"github.com/sashko-guz/mage/internal/parser"
-	"github.com/sashko-guz/mage/internal/processor"
-	"github.com/sashko-guz/mage/internal/signature"
-	"github.com/sashko-guz/mage/internal/storage"
-	storageDrivers "github.com/sashko-guz/mage/internal/storage/drivers"
 )
 
 func main() {
@@ -39,13 +36,12 @@ func run() error {
 
 	log.Printf("[Server] Starting…")
 	log.Printf("[Server] Log level: %s", logger.CurrentLevelString())
-	log.Printf("[Server] Storage config loaded from: %s", cfg.StorageConfigPath)
+	log.Printf("[Server] Storage config: %s", cfg.StorageConfigPath)
 	log.Printf("[Server] Resize limits: max width=%d px, max height=%d px, max resolution=%d px",
 		cfg.MaxResizeWidth, cfg.MaxResizeHeight, cfg.MaxResizeResolution)
 	log.Printf("[Server] Max input image size: %d MB", cfg.MaxInputImageSize/(1024*1024))
 
-	vipsCfg := configureVips()
-	vips.Startup(vipsCfg)
+	vips.Startup(configureVips())
 	defer vips.Shutdown()
 
 	stor, err := initializeStorage(cfg.StorageConfigPath)
@@ -54,127 +50,33 @@ func run() error {
 	}
 
 	srv := setupServer(cfg, stor)
-
 	logServerInfo(cfg)
 
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("server failed: %w", err)
-	}
-
-	return nil
-}
-
-func setupLogging() {
-	logger.SetOutput(os.Stderr)
-	logger.SetFlags(log.LstdFlags | log.Lshortfile)
-	logger.InitFromEnv()
-}
-
-func configureVips() *vips.Config {
-	vipsConcurrency := os.Getenv("VIPS_CONCURRENCY")
-	if vipsConcurrency == "" {
-		return nil
-	}
-
-	conc, err := strconv.Atoi(vipsConcurrency)
-	if err != nil || conc <= 0 {
-		logger.Warnf("[Server] Ignoring VIPS_CONCURRENCY=%q (must be positive integer)", vipsConcurrency)
-		return nil
-	}
-
-	logger.Infof("[Server] libvips concurrency set to %d via VIPS_CONCURRENCY", conc)
-	return &vips.Config{ConcurrencyLevel: conc}
-}
-
-func initializeStorage(configPath string) (storageDrivers.Storage, error) {
-	storageConfig, err := storage.LoadConfig(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load storage config: %w", err)
-	}
-
-	stor, err := storage.NewStorage(storageConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create storage: %w", err)
-	}
-
-	return stor, nil
-}
-
-func setupServer(cfg *config.Config, stor storageDrivers.Storage) *http.Server {
-	imageProcessor := processor.NewImageProcessor()
-	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, handler.ThumbnailHandlerConfig{
-		SignatureCfg: signature.Config{
-			SecretKey:     cfg.SignatureSecret,
-			Algorithm:     cfg.SignatureAlgorithm,
-			ExtractStart:  cfg.SignatureStart,
-			ExtractLength: cfg.SignatureLength,
-		},
-		MaxInputSize: cfg.MaxInputImageSize,
-		CacheControlResponseHeader: cfg.CacheControlResponseHeader,
-	})
-	if err != nil {
-		logger.Fatalf("[Server] Failed to initialize thumbnail handler: %v", err)
-	}
-
-	mux := buildRoutes(thumbnailHandler)
-
-	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: mux,
-
-		// Connection timeouts - prevent resource exhaustion and improve reliability
-		ReadTimeout:       cfg.ReadTimeout,       // Time to read entire request (including body)
-		ReadHeaderTimeout: cfg.ReadHeaderTimeout, // Time to read request headers only
-		WriteTimeout:      cfg.WriteTimeout,      // Time to write response (generous for large images)
-		IdleTimeout:       cfg.IdleTimeout,       // Keep-alive timeout for idle connections
-		MaxHeaderBytes:    cfg.MaxHeaderBytes,    // Max header size (prevent header-based attacks)
-	}
-
-	log.Printf("[Server] HTTP server configured:")
-	log.Printf("  - ReadTimeout: %v", srv.ReadTimeout)
-	log.Printf("  - ReadHeaderTimeout: %v", srv.ReadHeaderTimeout)
-	log.Printf("  - WriteTimeout: %v", srv.WriteTimeout)
-	log.Printf("  - IdleTimeout: %v", srv.IdleTimeout)
-	log.Printf("  - MaxHeaderBytes: %d bytes", srv.MaxHeaderBytes)
-
-	return srv
-}
-
-func buildRoutes(thumbnailHandler *handler.ThumbnailHandler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case isThumbnailPath(r.URL.Path):
-			thumbnailHandler.ServeHTTP(w, r)
-		case r.URL.Path == "/health":
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK"))
-		default:
-			http.NotFound(w, r)
+	errCh := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
 		}
-	})
-}
+		close(errCh)
+	}()
 
-func logServerInfo(cfg *config.Config) {
-	addr := ":" + cfg.Port
-	log.Printf("[Server] Server listening on %s", addr)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 
-	signatureStatus := "DISABLED"
-	if cfg.SignatureSecret != "" {
-		signatureStatus = "ENABLED (secret key set in SIGNATURE_SECRET env)"
-		log.Printf("[Server] Signature validation: %s", signatureStatus)
-		log.Printf("[Server] Signature config: algo=%s, extract_start=%d, length=%d",
-			cfg.SignatureAlgorithm,
-			cfg.SignatureStart,
-			cfg.SignatureLength,
-		)
-		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
-	} else {
-		log.Printf("[Server] Signature validation: %s", signatureStatus)
-		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/{size}/[filters:{filters}/]{path}", addr)
+	select {
+	case err := <-errCh:
+		return fmt.Errorf("server failed: %w", err)
+	case sig := <-quit:
+		log.Printf("[Server] Received %s, shutting down gracefully…", sig)
 	}
-}
 
-func isThumbnailPath(path string) bool {
-	trimmed := strings.TrimPrefix(path, "/")
-	return strings.HasPrefix(trimmed, "thumbs/") || trimmed == "thumbs"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		return fmt.Errorf("graceful shutdown failed: %w", err)
+	}
+
+	log.Printf("[Server] Shutdown complete")
+	return <-errCh
 }

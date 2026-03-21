@@ -6,12 +6,9 @@ services:
     container_name: mage-server
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
-    environment:
-      - PORT=${PORT:-8080}
-      - VIPS_WARNING=0
+    env_file:
+      - .env
     volumes:
-      # Mount .env file for environment variables
-      - ./.env:/app/.env:ro
       # Mount storage configuration
       - ./storage.docker.json:/app/storage.json:ro
       # Mount local storage data (portable relative paths)
@@ -20,3 +17,13 @@ services:
       - ./.cache:/app/.cache
     working_dir: /app
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT:-8080}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${DOCKER_MEMORY_LIMIT:-2g}
+          cpus: "${DOCKER_CPU_LIMIT:-0}"

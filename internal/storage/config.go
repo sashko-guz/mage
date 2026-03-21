@@ -121,8 +121,10 @@ func LoadConfig(configPath string) (*StorageConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	expanded := os.ExpandEnv(string(data))
+
 	var config StorageConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := json.Unmarshal([]byte(expanded), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
 

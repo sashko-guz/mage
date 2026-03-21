@@ -7,7 +7,9 @@ ARG TARGETARCH
 ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
 # Installs libvips + required libraries
-RUN DEBIAN_FRONTEND=noninteractive \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  DEBIAN_FRONTEND=noninteractive \
   apt-get update && \
   apt-get install --no-install-recommends -y \
   ca-certificates \
@@ -56,10 +58,12 @@ COPY --from=builder /usr/local/lib /usr/local/lib
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
 # Install runtime dependencies
-RUN DEBIAN_FRONTEND=noninteractive \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  DEBIAN_FRONTEND=noninteractive \
   apt-get update && \
   apt-get install --no-install-recommends -y \
-  procps curl libglib2.0-0 libpng16-16 libopenexr-3-1-30 \
+  wget libglib2.0-0 libpng16-16 libopenexr-3-1-30 \
   libwebp7 libwebpmux3 libwebpdemux2 libtiff6 libexif12 libxml2 libpoppler-glib8t64 \
   libpango-1.0-0 libmatio13 libopenslide0 libopenjp2-7 libjemalloc2 \
   libgsf-1-114 libfftw3-bin liborc-0.4-0 librsvg2-2 libcfitsio10t64 libimagequant0 libaom3 \
@@ -74,15 +78,16 @@ COPY --from=builder /go/bin/mage /usr/local/bin/mage
 
 # Create necessary directories and set proper permissions for nobody user
 RUN mkdir -p /app /app/.data /app/.cache/sources /app/.cache/thumbs && \
+    chown -R nobody:nogroup /app && \
     chmod -R 755 /app
 
 ENV VIPS_WARNING=0
 ENV MALLOC_ARENA_MAX=2
 ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so
 
+EXPOSE 8080
+
 # use unprivileged user
 USER nobody
 
 ENTRYPOINT ["/usr/local/bin/mage"]
-
-EXPOSE 8080

@@ -7,8 +7,10 @@ For high-throughput S3 access, configure `s3_http_config` in storage config.
 ```json
 {
   "driver": "s3",
-  "bucket": "my-bucket",
-  "region": "us-west-1",
+  "bucket": "${S3_BUCKET}",
+  "region": "${S3_REGION}",
+  "access_key": "${S3_ACCESS_KEY}",
+  "secret_key": "${S3_SECRET_KEY}",
   "s3_http_config": {
     "max_idle_conns": 100,
     "max_idle_conns_per_host": 100,
