@@ -23,6 +23,10 @@ git clone https://github.com/sashko-guz/mage.git
 cd mage
 cp .env.example .env
 cp storage.local.example.json storage.json
+mkdir -p .data .cache/sources .cache/thumbs
+# .data          — store your original source images here
+# .cache/sources — disk cache for processed source files
+# .cache/thumbs  — disk cache for generated thumbnails
 go run ./cmd/server
 ```
 
