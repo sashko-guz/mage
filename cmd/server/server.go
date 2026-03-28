@@ -18,12 +18,12 @@ func setupServer(cfg *config.Config, stor storageDrivers.Storage) *http.Server {
 	imageProcessor := processor.NewImageProcessor()
 	thumbnailHandler, err := handler.NewThumbnailHandler(stor, imageProcessor, handler.ThumbnailHandlerConfig{
 		SignatureCfg: signature.Config{
-			SecretKey:     cfg.SignatureSecret,
-			Algorithm:     cfg.SignatureAlgorithm,
-			ExtractStart:  cfg.SignatureStart,
-			ExtractLength: cfg.SignatureLength,
+			SecretKey:     cfg.Signature.Secret,
+			Algorithm:     cfg.Signature.Algorithm,
+			ExtractStart:  cfg.Signature.Start,
+			ExtractLength: cfg.Signature.Length,
 		},
-		MaxInputSize:               cfg.MaxInputImageSize,
+		MaxInputSize:               cfg.Resize.MaxInputSize,
 		CacheControlResponseHeader: cfg.CacheControlResponseHeader,
 	})
 	if err != nil {
@@ -31,13 +31,13 @@ func setupServer(cfg *config.Config, stor storageDrivers.Storage) *http.Server {
 	}
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
+		Addr:              ":" + cfg.HTTP.Port,
 		Handler:           buildRoutes(thumbnailHandler, cfg),
-		ReadTimeout:       cfg.ReadTimeout,
-		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-		WriteTimeout:      cfg.WriteTimeout,
-		IdleTimeout:       cfg.IdleTimeout,
-		MaxHeaderBytes:    cfg.MaxHeaderBytes,
+		ReadTimeout:       cfg.HTTP.ReadTimeout,
+		ReadHeaderTimeout: cfg.HTTP.ReadHeaderTimeout,
+		WriteTimeout:      cfg.HTTP.WriteTimeout,
+		IdleTimeout:       cfg.HTTP.IdleTimeout,
+		MaxHeaderBytes:    cfg.HTTP.MaxHeaderBytes,
 	}
 
 	log.Printf("[Server] HTTP server configured:")
@@ -72,7 +72,7 @@ func buildRoutes(thumbnailHandler *handler.ThumbnailHandler, cfg *config.Config)
 }
 
 func applyCORSHeaders(w http.ResponseWriter, cfg *config.Config) {
-	allowOrigin := cfg.CORSAllowOrigin
+	allowOrigin := cfg.CORS.AllowOrigin
 	if allowOrigin == "" {
 		allowOrigin = "*"
 	}
@@ -85,10 +85,10 @@ func applyCORSHeaders(w http.ResponseWriter, cfg *config.Config) {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
 
-	w.Header().Set("Access-Control-Allow-Methods", cfg.CORSAllowMethods)
-	w.Header().Set("Access-Control-Allow-Headers", cfg.CORSAllowHeaders)
-	w.Header().Set("Access-Control-Expose-Headers", cfg.CORSExposeHeaders)
-	w.Header().Set("Access-Control-Max-Age", strconv.Itoa(cfg.CORSMaxAge))
+	w.Header().Set("Access-Control-Allow-Methods", cfg.CORS.AllowMethods)
+	w.Header().Set("Access-Control-Allow-Headers", cfg.CORS.AllowHeaders)
+	w.Header().Set("Access-Control-Expose-Headers", cfg.CORS.ExposeHeaders)
+	w.Header().Set("Access-Control-Max-Age", strconv.Itoa(cfg.CORS.MaxAge))
 }
 
 func isThumbnailPath(path string) bool {

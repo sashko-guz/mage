@@ -8,6 +8,7 @@ import (
 	"github.com/sashko-guz/mage/internal/cache"
 	"github.com/sashko-guz/mage/internal/logger"
 	"github.com/sashko-guz/mage/internal/storage/drivers"
+	"golang.org/x/sync/singleflight"
 )
 
 // cacheWriteTask represents a single cache write operation
@@ -32,6 +33,9 @@ type CachedStorage struct {
 	thumbMemoryCache *cache.MemoryCache
 	thumbDiskCache   *cache.DiskCache
 	thumbTTL         time.Duration
+
+	// Deduplicates concurrent source fetches for the same path
+	sourceFlight singleflight.Group
 
 	// Async write workers for sources
 	sourceWriteQueue chan cacheWriteTask
@@ -87,12 +91,19 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 		}
 	}
 
-	// Layer 3: Fetch from underlying storage (S3, local, etc.)
+	// Layer 3: Fetch from underlying storage (S3, local, etc.).
+	// singleflight deduplicates concurrent requests for the same source path — e.g. the same
+	// image requested at different thumbnail sizes all share one in-flight S3/disk fetch.
+	// We detach from the per-request context so that if the first caller disconnects the fetch
+	// still completes and populates the cache for all other waiters.
 	logger.Debugf("[CachedStorage] Source cache miss, fetching from underlying storage: %s", key)
-	data, err := cs.underlying.GetObject(ctx, key)
+	result, err, _ := cs.sourceFlight.Do(key, func() (any, error) {
+		return cs.underlying.GetObject(context.WithoutCancel(ctx), key)
+	})
 	if err != nil {
 		return nil, err
 	}
+	data := result.([]byte)
 
 	// Backfill source caches
 	if cs.sourceMemoryCache != nil {

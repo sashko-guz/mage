@@ -33,6 +33,10 @@ func (o *ResizeOperation) Name() string {
 	return "resize"
 }
 
+func (o *ResizeOperation) Aliases() []string {
+	return []string{}
+}
+
 func (o *ResizeOperation) Clone() Operation {
 	return NewResizeOperation(o.maxWidth, o.maxHeight, o.maxResolution)
 }

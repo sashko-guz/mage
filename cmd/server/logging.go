@@ -15,19 +15,19 @@ func setupLogging() {
 }
 
 func logServerInfo(cfg *config.Config) {
-	addr := ":" + cfg.Port
+	addr := ":" + cfg.HTTP.Port
 	log.Printf("[Server] Server listening on %s", addr)
 
-	if cfg.SignatureSecret != "" {
+	if cfg.Signature.Secret != "" {
 		log.Printf("[Server] Signature validation: ENABLED (secret key set in SIGNATURE_SECRET env)")
 		log.Printf("[Server] Signature config: algo=%s, extract_start=%d, length=%d",
-			cfg.SignatureAlgorithm,
-			cfg.SignatureStart,
-			cfg.SignatureLength,
+			cfg.Signature.Algorithm,
+			cfg.Signature.Start,
+			cfg.Signature.Length,
 		)
-		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:{filters}/]{path}", addr)
+		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/[{signature}/]{size}/[filters:|f:{filters}/]{path}[/as/{alias.ext}]", addr)
 	} else {
 		log.Printf("[Server] Signature validation: DISABLED")
-		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/{size}/[filters:{filters}/]{path}", addr)
+		log.Printf("[Server] Thumbnail endpoint: http://localhost%s/thumbs/{size}/[filters:|f:{filters}/]{path}[/as/{alias.ext}]", addr)
 	}
 }

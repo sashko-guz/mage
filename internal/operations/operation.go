@@ -22,6 +22,9 @@ type Operation interface {
 	// Name returns the operation identifier
 	Name() string
 
+	// Aliases returns alternative short names for the operation (e.g. ["q"] for "quality")
+	Aliases() []string
+
 	// Parse attempts to parse the filter string
 	// Returns true if this operation handled the filter
 	// The operation should store parsed values internally

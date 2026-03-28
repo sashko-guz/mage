@@ -20,6 +20,10 @@ func (o *PercentCropOperation) Name() string {
 	return "pcrop"
 }
 
+func (o *PercentCropOperation) Aliases() []string {
+	return []string{"pc"}
+}
+
 func (o *PercentCropOperation) Clone() Operation {
 	return NewPercentCropOperation()
 }

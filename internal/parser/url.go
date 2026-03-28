@@ -130,9 +130,14 @@ func ParseURL(path string) (*operations.Request, error) {
 	var filePath string
 	filterIndex := sizeIndex + 1
 
-	if len(parts) > filterIndex && strings.HasPrefix(parts[filterIndex], "filters:") {
-		// Parse filters
-		filterString := strings.TrimPrefix(parts[filterIndex], "filters:")
+	if len(parts) > filterIndex && (strings.HasPrefix(parts[filterIndex], "filters:") || strings.HasPrefix(parts[filterIndex], "f:")) {
+		// Parse filters (supports both "filters:" and "f:" prefix)
+		filterString := parts[filterIndex]
+		if strings.HasPrefix(filterString, "filters:") {
+			filterString = filterString[8:]
+		} else {
+			filterString = filterString[2:]
+		}
 		req.FilterString = filterString
 
 		if len(parts) > filterIndex+1 {

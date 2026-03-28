@@ -1,99 +1,72 @@
-# URL API and Filters
+# URL API
 
 ## URL Format
 
 ```text
 /thumbs/[{signature}/]{width}x{height}/[filters:{filters}/]{path}[/as/{alias.ext}]
+/thumbs/[{signature}/]{width}x{height}/[f:{filters}/]{path}[/as/{alias.ext}]
 ```
+
+Both `filters:` and the short alias `f:` are accepted.
 
 ### Components
 
-- `{signature}` - Optional HMAC-SHA256 signature
-- `{width}x{height}` - Required size (example: `200x350`)
-	- each dimension must be `1..10000`
-- `{filters}` - Optional filter list split by `;`
-- `{path}` - Source image path in storage
-- `{alias.ext}` - Optional output alias suffix (`/as/{alias.ext}`)
+| Segment | Required | Description |
+|---|---|---|
+| `{signature}` | no | HMAC signature for request validation |
+| `{width}x{height}` | yes | Output dimensions — either can be omitted to scale proportionally |
+| `filters:` / `f:` | no | Filter segment prefix |
+| `{filters}` | no | Semicolon-separated list of operations |
+| `{path}` | yes | Source image path in storage |
+| `/as/{alias.ext}` | no | Output filename hint — also sets the default format |
 
-## Available Filters
-
-### `format(format)`
-
-- Supported: `jpeg`, `png`, `webp`, `avif`
-- Default: alias extension when `/as/{alias.ext}` is present, otherwise source path extension, fallback `jpeg`
-- If both alias extension and explicit `format(...)` filter are present, they must match
-
-### `quality(level)`
-
-- Range: `1..100`
-- Default: `75`
-
-### `fit(mode[,color])`
-
-- Modes: `cover` (default), `fill`
-- Fill colors for `fill`: `black`, `white`, `transparent` (PNG, WebP, and AVIF)
-
-### Resize (`{width}x{height}`)
-
-Validation:
-
-- width and height must be positive integers when provided
-- maximum value for width or height is `10000`
-
-### `crop(x1,y1,x2,y2)`
-
-Pixel-based crop before resize/fit.
-
-Validation:
-
-- all coordinates non-negative
-- `x2 > x1`
-- `y2 > y1`
-- crop bounds must be valid for source image
-
-### `pcrop(x1,y1,x2,y2)`
-
-Percent-based crop (`0..100`) before resize/fit.
-
-Validation:
-
-- all coordinates in `0..100`
-- `x2 > x1`
-- `y2 > y1`
-- cannot be combined with `crop`
+See [Operations](operations.md) for the full list of available filters, aliases, defaults, and validation rules.
 
 ## Example URLs
 
-Without filters:
+No filters — defaults applied (cover fit, jpeg, quality 75):
 
 ```text
-/thumbs/200x350/path/to/image.jpg
+/thumbs/400x300/photos/cat.jpg
 ```
 
-With filters:
+With filters (full names):
 
 ```text
-/thumbs/200x350/filters:format(avif);quality(90);fit(fill,black)/path/to/image.jpg
+/thumbs/400x300/filters:format(webp);quality(90)/photos/cat.jpg
+```
+
+With filters (short aliases):
+
+```text
+/thumbs/400x300/f:fmt(webp);q(90)/photos/cat.jpg
 ```
 
 With signature:
 
 ```text
-/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:format(webp);quality(90)/path/to/image.jpg
+/thumbs/a1b2c3d4e5f6g7h8/400x300/f:fmt(webp);q(90)/photos/cat.jpg
 ```
 
-With alias:
+With alias (sets output format automatically):
 
 ```text
-/thumbs/200x350/path/to/image.jpg/as/card.avif
+/thumbs/400x300/photos/cat.jpg/as/card.avif
+```
+
+With crop, fit, format, and quality:
+
+```text
+/thumbs/400x300/filters:crop(50,30,350,230);fit(fill,black);format(webp);quality(85)/photos/cat.jpg
+/thumbs/400x300/f:c(50,30,350,230);fit(fill,black);fmt(webp);q(85)/photos/cat.jpg
 ```
 
 With signature and alias:
 
 ```text
-/thumbs/a1b2c3d4e5f6g7h8/200x350/filters:quality(70)/path/to/image.jpg/as/card.avif
+/thumbs/a1b2c3d4e5f6g7h8/400x300/f:fmt(avif);q(90)/photos/cat.jpg/as/card.avif
 ```
 
 ## Signature Generation
 
-See [Signature Generation](signature.md) for payload rules and implementation examples (Node.js and PHP).
+See [Signature Generation](signature.md) for payload rules and implementation examples.

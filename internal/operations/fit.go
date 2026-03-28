@@ -22,6 +22,10 @@ func (o *FitOperation) Name() string {
 	return "fit"
 }
 
+func (o *FitOperation) Aliases() []string {
+	return []string{}
+}
+
 func (o *FitOperation) Clone() Operation {
 	return NewFitOperation()
 }

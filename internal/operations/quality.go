@@ -22,6 +22,10 @@ func (o *QualityOperation) Name() string {
 	return "quality"
 }
 
+func (o *QualityOperation) Aliases() []string {
+	return []string{"q"}
+}
+
 func (o *QualityOperation) Clone() Operation {
 	return NewQualityOperation()
 }

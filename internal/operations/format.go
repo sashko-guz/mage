@@ -22,6 +22,10 @@ func (o *FormatOperation) Name() string {
 	return "format"
 }
 
+func (o *FormatOperation) Aliases() []string {
+	return []string{"fmt"}
+}
+
 func (o *FormatOperation) Clone() Operation {
 	return NewFormatOperation()
 }

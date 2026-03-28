@@ -20,6 +20,10 @@ func (o *CropOperation) Name() string {
 	return "crop"
 }
 
+func (o *CropOperation) Aliases() []string {
+	return []string{"c"}
+}
+
 func (o *CropOperation) Clone() Operation {
 	return NewCropOperation()
 }

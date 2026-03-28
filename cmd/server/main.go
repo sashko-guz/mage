@@ -30,16 +30,16 @@ func main() {
 func run() error {
 	cfg := config.Load()
 
-	parser.Init(cfg.MaxResizeWidth, cfg.MaxResizeHeight, cfg.MaxResizeResolution)
-	parser.SetSignatureLength(cfg.SignatureLength)
-	parser.SetSignatureValidationEnabled(cfg.SignatureSecret != "")
+	parser.Init(cfg.Resize.MaxWidth, cfg.Resize.MaxHeight, cfg.Resize.MaxResolution)
+	parser.SetSignatureLength(cfg.Signature.Length)
+	parser.SetSignatureValidationEnabled(cfg.Signature.Secret != "")
 
 	log.Printf("[Server] Starting…")
 	log.Printf("[Server] Log level: %s", logger.CurrentLevelString())
 	log.Printf("[Server] Storage config: %s", cfg.StorageConfigPath)
 	log.Printf("[Server] Resize limits: max width=%d px, max height=%d px, max resolution=%d px",
-		cfg.MaxResizeWidth, cfg.MaxResizeHeight, cfg.MaxResizeResolution)
-	log.Printf("[Server] Max input image size: %d MB", cfg.MaxInputImageSize/(1024*1024))
+		cfg.Resize.MaxWidth, cfg.Resize.MaxHeight, cfg.Resize.MaxResolution)
+	log.Printf("[Server] Max input image size: %d MB", cfg.Resize.MaxInputSize/(1024*1024))
 
 	vips.Startup(configureVips())
 	defer vips.Shutdown()

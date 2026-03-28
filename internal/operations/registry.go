@@ -2,6 +2,7 @@ package operations
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cshum/vipsgen/vips"
 )
@@ -36,10 +37,12 @@ func NewRegistry(maxWidth, maxHeight, maxResolution int) *Registry {
 
 // ParseFilter attempts to parse a filter using registered operations
 // Returns a new operation instance if parsing succeeds
+// Supports both canonical names (e.g. "quality") and aliases (e.g. "q")
 func (r *Registry) ParseFilter(filter string) (Operation, error) {
 	for _, prototype := range r.prototypes {
 		op := prototype.Clone()
-		handled, err := op.Parse(filter)
+		normalized := normalizeFilterAlias(filter, op.Name(), op.Aliases())
+		handled, err := op.Parse(normalized)
 		if err != nil {
 			return nil, fmt.Errorf("operation %s: %w", op.Name(), err)
 		}
@@ -48,6 +51,18 @@ func (r *Registry) ParseFilter(filter string) (Operation, error) {
 		}
 	}
 	return nil, fmt.Errorf("unknown filter: %s", filter)
+}
+
+// normalizeFilterAlias replaces an alias prefix with the canonical operation name.
+// e.g. "q(90)" -> "quality(90)" when name="quality", aliases=["q"]
+func normalizeFilterAlias(filter, name string, aliases []string) string {
+	for _, alias := range aliases {
+		prefix := alias + "("
+		if strings.HasPrefix(filter, prefix) {
+			return name + filter[len(alias):]
+		}
+	}
+	return filter
 }
 
 // ResizeOp returns the resize operation for size parsing
