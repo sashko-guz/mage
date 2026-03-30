@@ -189,15 +189,15 @@ Percent-based crop applied before resize. Coordinates are percentages (`0..100`)
 
 Controls the output dimensions. This is always the `{width}x{height}` segment in the URL — not a filter.
 
-**Syntax:** `{width}x{height}`, `{width}x`, `x{height}`
+**Syntax:** `{width}x{height}`, `{width}x`, `x{height}`, `x`
 
-Either dimension can be omitted to resize proportionally.
+Either dimension can be omitted — the missing dimension is calculated to preserve the original aspect ratio. Using `x` alone keeps the original dimensions.
 
 **Validation:**
 
 - provided dimensions must be positive integers
-- maximum value for each dimension: `10000`
-- maximum total resolution is configurable
+- maximum value for each dimension is configurable via `MAX_RESIZE_WIDTH` / `MAX_RESIZE_HEIGHT` (default: `5120`)
+- maximum total resolution is configurable via `MAX_RESIZE_RESOLUTION` (default: `MAX_RESIZE_WIDTH × MAX_RESIZE_HEIGHT`)
 
 **Examples:**
 
@@ -210,6 +210,9 @@ Either dimension can be omitted to resize proportionally.
 
 # Height only — width scales proportionally
 /thumbs/x300/photos/cat.jpg
+
+# Original dimensions — no resizing
+/thumbs/x/photos/cat.jpg
 ```
 
 ---

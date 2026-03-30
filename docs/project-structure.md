@@ -29,7 +29,8 @@
 ├── .env.example             # Example environment variables
 ├── docker-compose.yml       # Local/dev service orchestration
 ├── README.md                # Main project documentation
-├── storage.*.json           # Storage configuration examples
+├── storage.*.example.json   # Example storage configuration files
+├── storage.docker.json      # Storage configuration for Docker Compose
 ├── Dockerfile               # Container image definition
 ├── go.mod                   # Go module definition
 └── go.sum                   # Go dependency checksums
