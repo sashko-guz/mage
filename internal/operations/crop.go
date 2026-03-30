@@ -29,7 +29,7 @@ func (o *CropOperation) Clone() Operation {
 }
 
 func (o *CropOperation) Parse(filter string) (bool, error) {
-	if !strings.HasPrefix(filter, "crop(") {
+	if !matchesFilter(filter, o.Name(), o.Aliases()) {
 		return false, nil
 	}
 
@@ -37,7 +37,7 @@ func (o *CropOperation) Parse(filter string) (bool, error) {
 		return false, fmt.Errorf("crop filter missing closing parenthesis")
 	}
 
-	content := filter[5 : len(filter)-1]
+	content := filter[strings.Index(filter, "(")+1 : len(filter)-1]
 	parts := strings.Split(content, ",")
 	if len(parts) != 4 {
 		return false, fmt.Errorf("crop filter expects 4 coordinates (x1,y1,x2,y2), got: %s", content)

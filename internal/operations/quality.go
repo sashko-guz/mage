@@ -31,7 +31,7 @@ func (o *QualityOperation) Clone() Operation {
 }
 
 func (o *QualityOperation) Parse(filter string) (bool, error) {
-	if !strings.HasPrefix(filter, "quality(") {
+	if !matchesFilter(filter, o.Name(), o.Aliases()) {
 		return false, nil
 	}
 
@@ -39,7 +39,7 @@ func (o *QualityOperation) Parse(filter string) (bool, error) {
 		return false, fmt.Errorf("quality filter missing closing parenthesis")
 	}
 
-	content := filter[8 : len(filter)-1]
+	content := filter[strings.Index(filter, "(")+1 : len(filter)-1]
 	content = strings.TrimSpace(content)
 
 	if content == "" {

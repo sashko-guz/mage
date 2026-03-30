@@ -31,7 +31,7 @@ func (o *FitOperation) Clone() Operation {
 }
 
 func (o *FitOperation) Parse(filter string) (bool, error) {
-	if !strings.HasPrefix(filter, "fit(") {
+	if !matchesFilter(filter, o.Name(), o.Aliases()) {
 		return false, nil
 	}
 
@@ -39,7 +39,7 @@ func (o *FitOperation) Parse(filter string) (bool, error) {
 		return false, fmt.Errorf("fit filter missing closing parenthesis")
 	}
 
-	content := filter[4 : len(filter)-1]
+	content := filter[strings.Index(filter, "(")+1 : len(filter)-1]
 	parts := strings.Split(content, ",")
 	if len(parts) == 0 || len(parts) > 2 {
 		return false, fmt.Errorf("fit filter expects 1 or 2 parameters, got: %s", content)

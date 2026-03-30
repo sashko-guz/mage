@@ -1,6 +1,24 @@
 package operations
 
-import "github.com/cshum/vipsgen/vips"
+import (
+	"strings"
+
+	"github.com/cshum/vipsgen/vips"
+)
+
+// matchesFilter reports whether filter starts with the operation's canonical name
+// or any of its aliases followed by "(".
+func matchesFilter(filter, name string, aliases []string) bool {
+	if strings.HasPrefix(filter, name+"(") {
+		return true
+	}
+	for _, alias := range aliases {
+		if strings.HasPrefix(filter, alias+"(") {
+			return true
+		}
+	}
+	return false
+}
 
 // Request contains core thumbnail request information
 type Request struct {

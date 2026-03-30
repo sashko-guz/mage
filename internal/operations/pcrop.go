@@ -29,7 +29,7 @@ func (o *PercentCropOperation) Clone() Operation {
 }
 
 func (o *PercentCropOperation) Parse(filter string) (bool, error) {
-	if !strings.HasPrefix(filter, "pcrop(") {
+	if !matchesFilter(filter, o.Name(), o.Aliases()) {
 		return false, nil
 	}
 
@@ -37,7 +37,7 @@ func (o *PercentCropOperation) Parse(filter string) (bool, error) {
 		return false, fmt.Errorf("pcrop filter missing closing parenthesis")
 	}
 
-	content := filter[6 : len(filter)-1]
+	content := filter[strings.Index(filter, "(")+1 : len(filter)-1]
 	parts := strings.Split(content, ",")
 	if len(parts) != 4 {
 		return false, fmt.Errorf("pcrop filter expects 4 coordinates (x1,y1,x2,y2) as percentages 0-100, got: %s", content)

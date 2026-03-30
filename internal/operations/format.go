@@ -31,7 +31,7 @@ func (o *FormatOperation) Clone() Operation {
 }
 
 func (o *FormatOperation) Parse(filter string) (bool, error) {
-	if !strings.HasPrefix(filter, "format(") {
+	if !matchesFilter(filter, o.Name(), o.Aliases()) {
 		return false, nil
 	}
 
@@ -39,7 +39,7 @@ func (o *FormatOperation) Parse(filter string) (bool, error) {
 		return false, fmt.Errorf("format filter missing closing parenthesis")
 	}
 
-	content := filter[7 : len(filter)-1]
+	content := filter[strings.Index(filter, "(")+1 : len(filter)-1]
 	content = strings.TrimSpace(content)
 
 	if content == "" {
