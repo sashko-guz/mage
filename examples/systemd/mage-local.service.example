@@ -1,0 +1,45 @@
+[Unit]
+Description=Mage image processing service (local storage)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mage
+Environment=STORAGE_CONFIG_PATH=/opt/mage/storage.json
+Environment=PORT=8080
+Environment=VIPS_CONCURRENCY=
+Environment=LOG_LEVEL=info
+Environment="CORS_ALLOW_ORIGIN=*"
+Environment="CORS_ALLOW_METHODS=GET, HEAD, OPTIONS"
+Environment="CORS_ALLOW_HEADERS=Origin, Content-Type, Accept, Authorization"
+Environment="CORS_EXPOSE_HEADERS=Content-Type, Content-Length, Cache-Control, X-Mage-Cache"
+Environment=CORS_MAX_AGE=86400
+Environment=HTTP_READ_TIMEOUT_SECONDS=5
+Environment=HTTP_READ_HEADER_TIMEOUT_SECONDS=2
+Environment=HTTP_WRITE_TIMEOUT_SECONDS=30
+Environment=HTTP_IDLE_TIMEOUT_SECONDS=120
+Environment=HTTP_MAX_HEADER_BYTES=1048576
+Environment=MAX_INPUT_IMAGE_SIZE_MB=64
+Environment=SIGNATURE_SECRET=
+Environment=SIGNATURE_ALGO=sha256
+Environment=SIGNATURE_EXTRACT_START=0
+Environment=SIGNATURE_LENGTH=16
+Environment=MAX_RESIZE_WIDTH=5120
+Environment=MAX_RESIZE_HEIGHT=5120
+Environment=MAX_RESIZE_RESOLUTION=26214400
+Environment="CACHE_CONTROL_RESPONSE_HEADER=public, max-age=31536000, immutable"
+Environment=STORAGE_ROOT=/absolute/path/to/original/images
+Environment=S3_BUCKET=
+Environment=S3_REGION=
+Environment=S3_ACCESS_KEY=
+Environment=S3_SECRET_KEY=
+Environment=S3_BASE_URL=
+Environment=S3_USE_PATH_STYLE=false
+EnvironmentFile=/opt/mage/.env
+ExecStart=/usr/local/bin/mage
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

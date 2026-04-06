@@ -16,7 +16,6 @@ go.work
 
 # Project related files
 storage.json
-storage.docker.json
 
 # MacOS specific files
 .DS_Store

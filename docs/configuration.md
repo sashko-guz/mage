@@ -41,9 +41,8 @@ Configure storage in `storage.json`.
 
 Example files:
 
-- `storage.local.example.json`
-- `storage.s3.example.json`
-- `storage.docker.example.json`
+- `examples/storage/local.example.json`
+- `examples/storage/s3.example.json`
 
 ### Storage Settings
 

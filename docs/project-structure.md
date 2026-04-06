@@ -25,12 +25,18 @@
 │   └── storage/             # Storage abstraction + cached storage wrapper
 │       └── drivers/         # Local filesystem and S3-compatible drivers
 ├── docs/                    # Project documentation
+├── examples/                # Example configs for runtime setup
+│   ├── storage/
+│   │   ├── local.example.json
+│   │   └── s3.example.json
+│   └── systemd/
+│       ├── mage-local.service.example
+│       └── mage-s3.service.example
 ├── .dockerignore            # Docker build context exclusions
 ├── .env.example             # Example environment variables
-├── docker-compose.yml       # Local/dev service orchestration
+├── docker-compose.local.yml # Local filesystem compose file
+├── docker-compose.s3.yml    # S3-backed compose file
 ├── README.md                # Main project documentation
-├── storage.*.example.json   # Example storage configuration files
-├── storage.docker.json      # Storage configuration for Docker Compose
 ├── Dockerfile               # Container image definition
 ├── go.mod                   # Go module definition
 └── go.sum                   # Go dependency checksums

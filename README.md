@@ -22,13 +22,16 @@ Mage generates thumbnails on-the-fly, supports local/S3 storage backends, and in
 git clone https://github.com/sashko-guz/mage.git
 cd mage
 cp .env.example .env
-cp storage.local.example.json storage.json
+cp examples/storage/local.example.json storage.json
 mkdir -p .data .cache/sources .cache/thumbs
 # .data          — store your original source images here
 # .cache/sources — disk cache for processed source files
 # .cache/thumbs  — disk cache for generated thumbnails
+# In .env set STORAGE_ROOT=./.data
 go run ./cmd/server
 ```
+
+Example configs live under `examples/storage/` and the systemd unit example is under `examples/systemd/`.
 
 ## Documentation
 

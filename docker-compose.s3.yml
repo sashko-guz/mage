@@ -4,16 +4,14 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: mage-server
+    environment:
+      STORAGE_CONFIG_PATH: /app/storage.json
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
     env_file:
       - .env
     volumes:
-      # Mount storage configuration
-      - ./storage.docker.json:/app/storage.json:ro
-      # Mount local storage data (portable relative paths)
-      - ./.data:/app/.data
-      # Mount cache directories
+      - ./storage.json:/app/storage.json:ro
       - ./.cache:/app/.cache
     working_dir: /app
     restart: unless-stopped

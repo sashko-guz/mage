@@ -4,18 +4,18 @@
   "cache": {
     "sources": {
       "memory": {
-        "enabled": false,
+        "enabled": true,
         "ttl_seconds": 300,
         "max_size_mb": 256,
         "max_items": 100
       },
       "disk": {
         "enabled": true,
-        "ttl_seconds": 300,
+        "ttl_seconds": 600,
         "max_size_mb": 2048,
         "max_items": 131072,
-        "dir": "/app/.cache/sources",
-        "clear_on_startup": true,
+        "dir": "./.cache/sources",
+        "clear_on_startup": false,
         "async_write": {
           "enabled": true,
           "num_workers": 4,
@@ -26,17 +26,17 @@
     "thumbs": {
       "memory": {
         "enabled": true,
-        "ttl_seconds": 30,
+        "ttl_seconds": 120,
         "max_size_mb": 512,
         "max_items": 500
       },
       "disk": {
         "enabled": true,
-        "ttl_seconds": 300,
+        "ttl_seconds": 600,
         "max_size_mb": 10240,
         "max_items": 655360,
-        "dir": "/app/.cache/thumbs",
-        "clear_on_startup": true,
+        "dir": "./.cache/thumbs",
+        "clear_on_startup": false,
         "async_write": {
           "enabled": true,
           "num_workers": 4,

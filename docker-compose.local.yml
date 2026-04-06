@@ -1,0 +1,28 @@
+services:
+  mage:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mage-server
+    environment:
+      STORAGE_CONFIG_PATH: /app/storage.json
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    env_file:
+      - .env
+    volumes:
+      - ./storage.json:/app/storage.json:ro
+      - ${STORAGE_ROOT:?Set STORAGE_ROOT in .env}:${STORAGE_ROOT:?Set STORAGE_ROOT in .env}:ro
+      - ./.cache:/app/.cache
+    working_dir: /app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT:-8080}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${DOCKER_MEMORY_LIMIT:-2g}
+          cpus: "${DOCKER_CPU_LIMIT:-0}"
