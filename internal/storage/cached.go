@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sashko-guz/mage/internal/cache"
-	"github.com/sashko-guz/mage/internal/logger"
+	"github.com/sashko-guz/mage/internal/storage/cache"
+	"github.com/sashko-guz/mage/internal/pkg/logger"
 	"github.com/sashko-guz/mage/internal/storage/drivers"
 	"golang.org/x/sync/singleflight"
 )
@@ -15,6 +15,13 @@ import (
 type cacheWriteTask struct {
 	key  string
 	data []byte
+}
+
+// MetricsRecorder interface for recording cache metrics
+type MetricsRecorder interface {
+	RecordCacheHit(cacheType, layer string)
+	RecordCacheMiss(cacheType, layer string)
+	RecordStorageOperation(operation, driver string, durationSeconds float64)
 }
 
 // CachedStorage wraps a Storage implementation with separate multi-layer caching for sources and thumbnails
@@ -44,6 +51,10 @@ type CachedStorage struct {
 	// Async write workers for thumbnails
 	thumbWriteQueue chan cacheWriteTask
 	thumbWriteMu    sync.WaitGroup
+
+	// Metrics recorder (optional)
+	metrics    MetricsRecorder
+	driverName string
 }
 
 // SourcesCacheEnabled returns true if any source cache layer is enabled
@@ -54,6 +65,30 @@ func (cs *CachedStorage) SourcesCacheEnabled() bool {
 // ThumbsCacheEnabled returns true if any thumbnail cache layer is enabled
 func (cs *CachedStorage) ThumbsCacheEnabled() bool {
 	return cs.thumbMemoryCache != nil || cs.thumbDiskCache != nil
+}
+
+// SetMetrics sets the metrics recorder for cache statistics
+func (cs *CachedStorage) SetMetrics(m MetricsRecorder, driverName string) {
+	cs.metrics = m
+	cs.driverName = driverName
+}
+
+func (cs *CachedStorage) recordHit(cacheType, layer string) {
+	if cs.metrics != nil {
+		cs.metrics.RecordCacheHit(cacheType, layer)
+	}
+}
+
+func (cs *CachedStorage) recordMiss(cacheType, layer string) {
+	if cs.metrics != nil {
+		cs.metrics.RecordCacheMiss(cacheType, layer)
+	}
+}
+
+func (cs *CachedStorage) recordStorageOp(operation string, duration float64) {
+	if cs.metrics != nil {
+		cs.metrics.RecordStorageOperation(operation, cs.driverName, duration)
+	}
 }
 
 // GetObject retrieves a source image through the multi-layer cache hierarchy
@@ -72,14 +107,17 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 	if cs.sourceMemoryCache != nil {
 		if data, found := cs.sourceMemoryCache.Get(cacheKey); found {
 			logger.Debugf("[CachedStorage] Source memory cache HIT for key: %s", key)
+			cs.recordHit("source", "memory")
 			return data, nil
 		}
+		cs.recordMiss("source", "memory")
 	}
 
 	// Layer 2: Check source disk cache (if enabled)
 	if cs.sourceDiskCache != nil {
 		if data, err := cs.sourceDiskCache.Get(cacheKey); err == nil {
 			logger.Debugf("[CachedStorage] Source disk cache HIT for key: %s", key)
+			cs.recordHit("source", "disk")
 
 			// Populate source memory cache for next time
 			if cs.sourceMemoryCache != nil {
@@ -89,6 +127,7 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 
 			return data, nil
 		}
+		cs.recordMiss("source", "disk")
 	}
 
 	// Layer 3: Fetch from underlying storage (S3, local, etc.).
@@ -98,7 +137,10 @@ func (cs *CachedStorage) GetObject(ctx context.Context, key string) ([]byte, err
 	// still completes and populates the cache for all other waiters.
 	logger.Debugf("[CachedStorage] Source cache miss, fetching from underlying storage: %s", key)
 	result, err, _ := cs.sourceFlight.Do(key, func() (any, error) {
-		return cs.underlying.GetObject(context.WithoutCancel(ctx), key)
+		start := time.Now()
+		data, err := cs.underlying.GetObject(context.WithoutCancel(ctx), key)
+		cs.recordStorageOp("get", time.Since(start).Seconds())
+		return data, err
 	})
 	if err != nil {
 		return nil, err
@@ -183,14 +225,17 @@ func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
 	if cs.thumbMemoryCache != nil {
 		if data, found := cs.thumbMemoryCache.Get(thumbnailKey); found {
 			logger.Debugf("[CachedStorage] Thumb memory cache HIT for key: %s", cacheKey)
+			cs.recordHit("thumb", "memory")
 			return data, true, nil
 		}
+		cs.recordMiss("thumb", "memory")
 	}
 
 	// Layer 2: Check thumb disk cache (if enabled)
 	if cs.thumbDiskCache != nil {
 		if data, err := cs.thumbDiskCache.Get(thumbnailKey); err == nil {
 			logger.Debugf("[CachedStorage] Thumb disk cache HIT for key: %s", cacheKey)
+			cs.recordHit("thumb", "disk")
 
 			// Populate thumb memory cache for next time
 			if cs.thumbMemoryCache != nil {
@@ -200,6 +245,7 @@ func (cs *CachedStorage) GetThumbnail(cacheKey string) ([]byte, bool, error) {
 
 			return data, true, nil
 		}
+		cs.recordMiss("thumb", "disk")
 	}
 
 	return nil, false, nil
@@ -275,6 +321,11 @@ func (cs *CachedStorage) SetThumbnailAsync(cacheKey string, data []byte) {
 		// Queue full - drop the write (thumbnail is in memory cache already)
 		logger.Warnf("[CachedStorage] Thumb write queue full, skipping async write for: %s", cacheKey)
 	}
+}
+
+// Ping delegates to underlying storage to check connectivity
+func (cs *CachedStorage) Ping(ctx context.Context) error {
+	return cs.underlying.Ping(ctx)
 }
 
 // Close releases cache resources and shuts down async workers

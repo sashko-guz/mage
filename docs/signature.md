@@ -66,7 +66,7 @@ const secret = process.env.SIGNATURE_SECRET;
 const payload = '/200x350/filters:quality(90)/path/to/image.jpg/as/card.avif';
 const signature = signPayload(payload, secret);
 
-const url = `/thumbs/${signature}${payload}`;
+const url = `/thumbs/${signature}${payload}`;  // or /t/${signature}${payload}
 
 console.info(url);
 ```
@@ -114,7 +114,7 @@ $secret = getenv('SIGNATURE_SECRET');
 $payload = '/200x350/filters:quality(90)/path/to/image.jpg/as/card.avif';
 $signature = signPayload($payload, $secret);
 
-$url = "/thumbs/{$signature}{$payload}";
+$url = "/thumbs/{$signature}{$payload}";  // or /t/{$signature}{$payload}
 
 echo $url . PHP_EOL;
 ```

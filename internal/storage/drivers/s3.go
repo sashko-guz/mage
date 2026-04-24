@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/sashko-guz/mage/internal/logger"
+	"github.com/sashko-guz/mage/internal/pkg/logger"
 	"golang.org/x/net/http2"
 )
 
@@ -170,4 +170,12 @@ func (s *S3Client) GetObject(ctx context.Context, key string) ([]byte, error) {
 	}
 	logger.Debugf("[S3 Storage] Successfully fetched object: bucket=%s, key=%s, size=%d bytes", s.bucket, key, len(data))
 	return data, nil
+}
+
+// Ping checks S3 bucket connectivity using HeadBucket
+func (s *S3Client) Ping(ctx context.Context) error {
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(s.bucket),
+	})
+	return err
 }

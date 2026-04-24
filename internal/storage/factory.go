@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sashko-guz/mage/internal/cache"
-	"github.com/sashko-guz/mage/internal/logger"
+	"github.com/sashko-guz/mage/internal/storage/cache"
+	"github.com/sashko-guz/mage/internal/pkg/logger"
 	"github.com/sashko-guz/mage/internal/storage/drivers"
 )
 
@@ -44,25 +44,22 @@ func createBaseStorage(cfg *StorageConfig) (drivers.Storage, error) {
 	switch cfg.Driver {
 	case DriverS3:
 		if cfg.Bucket == "" {
-			return nil, fmt.Errorf("bucket is required for S3 driver")
-		}
-		if cfg.Region == "" {
-			cfg.Region = "us-east-1" // default region
+			return nil, fmt.Errorf("S3_BUCKET is required for S3 driver")
 		}
 		// Require credentials when using custom base_url (S3-compatible storage)
 		if cfg.BaseURL != "" && (cfg.AccessKey == "" || cfg.SecretKey == "") {
-			return nil, fmt.Errorf("access_key and secret_key are required when using base_url for S3-compatible storage")
+			return nil, fmt.Errorf("S3_ACCESS_KEY and S3_SECRET_KEY are required when using S3_BASE_URL")
 		}
-		return drivers.NewS3Client(cfg.Region, cfg.AccessKey, cfg.SecretKey, cfg.Bucket, cfg.BaseURL, bool(cfg.UsePathStyle), cfg.S3HTTPConfig)
+		return drivers.NewS3Client(cfg.Region, cfg.AccessKey, cfg.SecretKey, cfg.Bucket, cfg.BaseURL, cfg.UsePathStyle, cfg.S3HTTPConfig)
 
 	case DriverLocal:
 		if cfg.Root == "" {
-			return nil, fmt.Errorf("root is required for local driver")
+			return nil, fmt.Errorf("STORAGE_ROOT is required for local driver")
 		}
 		return drivers.NewLocalStorage(cfg.Root)
 
 	default:
-		return nil, fmt.Errorf("unknown driver '%s'", cfg.Driver)
+		return nil, fmt.Errorf("unknown STORAGE_DRIVER '%s' (use 'local' or 's3')", cfg.Driver)
 	}
 }
 
@@ -72,13 +69,13 @@ func wrapWithCache(baseStorage drivers.Storage, cfg *StorageConfig) (drivers.Sto
 		return baseStorage, nil
 	}
 
-	sourcesEnabled := (cfg.Cache.Sources != nil &&
-		((cfg.Cache.Sources.Disk != nil && cfg.Cache.Sources.Disk.Enabled != nil && *cfg.Cache.Sources.Disk.Enabled) ||
-			(cfg.Cache.Sources.Memory != nil && cfg.Cache.Sources.Memory.Enabled != nil && *cfg.Cache.Sources.Memory.Enabled)))
+	sourcesEnabled := cfg.Cache.Sources != nil &&
+		((cfg.Cache.Sources.Disk != nil && cfg.Cache.Sources.Disk.Enabled) ||
+			(cfg.Cache.Sources.Memory != nil && cfg.Cache.Sources.Memory.Enabled))
 
-	thumbsEnabled := (cfg.Cache.Thumbs != nil &&
-		((cfg.Cache.Thumbs.Disk != nil && cfg.Cache.Thumbs.Disk.Enabled != nil && *cfg.Cache.Thumbs.Disk.Enabled) ||
-			(cfg.Cache.Thumbs.Memory != nil && cfg.Cache.Thumbs.Memory.Enabled != nil && *cfg.Cache.Thumbs.Memory.Enabled)))
+	thumbsEnabled := cfg.Cache.Thumbs != nil &&
+		((cfg.Cache.Thumbs.Disk != nil && cfg.Cache.Thumbs.Disk.Enabled) ||
+			(cfg.Cache.Thumbs.Memory != nil && cfg.Cache.Thumbs.Memory.Enabled))
 
 	if !sourcesEnabled && !thumbsEnabled {
 		logger.Infof("[Cache] No cache enabled")
@@ -103,14 +100,14 @@ func wrapWithCache(baseStorage drivers.Storage, cfg *StorageConfig) (drivers.Sto
 		sourceCfg := cfg.Cache.Sources
 
 		// Memory cache for sources
-		if sourceCfg.Memory != nil && sourceCfg.Memory.Enabled != nil && *sourceCfg.Memory.Enabled {
+		if sourceCfg.Memory != nil && sourceCfg.Memory.Enabled {
 			maxItems := sourceCfg.Memory.MaxItems
 			if maxItems == 0 {
 				maxItems = 1000
 			}
 			memTTL := defaultTTL
-			if sourceCfg.Memory.TTLSeconds > 0 {
-				memTTL = time.Duration(sourceCfg.Memory.TTLSeconds) * time.Second
+			if sourceCfg.Memory.TTL > 0 {
+				memTTL = sourceCfg.Memory.TTL
 			}
 			cacheConfig.SourceMemoryCache = &MemoryCacheConfig{
 				Enabled:   true,
@@ -121,20 +118,16 @@ func wrapWithCache(baseStorage drivers.Storage, cfg *StorageConfig) (drivers.Sto
 		}
 
 		// Disk cache for sources
-		if sourceCfg.Disk != nil && sourceCfg.Disk.Enabled != nil && *sourceCfg.Disk.Enabled {
+		if sourceCfg.Disk != nil && sourceCfg.Disk.Enabled {
 			if sourceCfg.Disk.Dir == "" {
-				return nil, fmt.Errorf("sources cache dir is required when disk cache is enabled")
+				return nil, fmt.Errorf("SOURCE_DISK_CACHE_DIR is required when disk cache is enabled")
 			}
 			if err := os.MkdirAll(sourceCfg.Disk.Dir, 0755); err != nil {
 				return nil, fmt.Errorf("failed to create sources cache directory: %w", err)
 			}
 			diskTTL := defaultTTL
-			if sourceCfg.Disk.TTLSeconds > 0 {
-				diskTTL = time.Duration(sourceCfg.Disk.TTLSeconds) * time.Second
-			}
-			clearOnStartup := false
-			if sourceCfg.Disk.ClearOnStartup != nil {
-				clearOnStartup = *sourceCfg.Disk.ClearOnStartup
+			if sourceCfg.Disk.TTL > 0 {
+				diskTTL = sourceCfg.Disk.TTL
 			}
 			maxItems := sourceCfg.Disk.MaxItems
 			if maxItems <= 0 {
@@ -144,18 +137,16 @@ func wrapWithCache(baseStorage drivers.Storage, cfg *StorageConfig) (drivers.Sto
 				Enabled:        true,
 				BasePath:       sourceCfg.Disk.Dir,
 				TTL:            diskTTL,
-				ClearOnStartup: clearOnStartup,
+				ClearOnStartup: sourceCfg.Disk.ClearOnStartup,
 				MaxSizeMB:      sourceCfg.Disk.MaxSizeMB,
 				MaxItems:       maxItems,
 			}
 
-			asyncEnabled := true // Default to enabled
-			numWorkers := 4      // Default workers
-			queueSize := 1000    // Default queue size
+			asyncEnabled := true
+			numWorkers := 4
+			queueSize := 1000
 			if sourceCfg.Disk.AsyncWrite != nil {
-				if sourceCfg.Disk.AsyncWrite.Enabled != nil {
-					asyncEnabled = *sourceCfg.Disk.AsyncWrite.Enabled
-				}
+				asyncEnabled = sourceCfg.Disk.AsyncWrite.Enabled
 				if sourceCfg.Disk.AsyncWrite.NumWorkers > 0 {
 					numWorkers = sourceCfg.Disk.AsyncWrite.NumWorkers
 				}
@@ -176,14 +167,14 @@ func wrapWithCache(baseStorage drivers.Storage, cfg *StorageConfig) (drivers.Sto
 		thumbsCfg := cfg.Cache.Thumbs
 
 		// Memory cache for thumbs
-		if thumbsCfg.Memory != nil && thumbsCfg.Memory.Enabled != nil && *thumbsCfg.Memory.Enabled {
+		if thumbsCfg.Memory != nil && thumbsCfg.Memory.Enabled {
 			maxItems := thumbsCfg.Memory.MaxItems
 			if maxItems == 0 {
 				maxItems = 1000
 			}
 			memTTL := defaultTTL
-			if thumbsCfg.Memory.TTLSeconds > 0 {
-				memTTL = time.Duration(thumbsCfg.Memory.TTLSeconds) * time.Second
+			if thumbsCfg.Memory.TTL > 0 {
+				memTTL = thumbsCfg.Memory.TTL
 			}
 			cacheConfig.ThumbMemoryCache = &MemoryCacheConfig{
 				Enabled:   true,
@@ -194,20 +185,16 @@ func wrapWithCache(baseStorage drivers.Storage, cfg *StorageConfig) (drivers.Sto
 		}
 
 		// Disk cache for thumbs
-		if thumbsCfg.Disk != nil && thumbsCfg.Disk.Enabled != nil && *thumbsCfg.Disk.Enabled {
+		if thumbsCfg.Disk != nil && thumbsCfg.Disk.Enabled {
 			if thumbsCfg.Disk.Dir == "" {
-				return nil, fmt.Errorf("thumbs cache dir is required when disk cache is enabled")
+				return nil, fmt.Errorf("THUMB_DISK_CACHE_DIR is required when disk cache is enabled")
 			}
 			if err := os.MkdirAll(thumbsCfg.Disk.Dir, 0755); err != nil {
 				return nil, fmt.Errorf("failed to create thumbs cache directory: %w", err)
 			}
 			diskTTL := defaultTTL
-			if thumbsCfg.Disk.TTLSeconds > 0 {
-				diskTTL = time.Duration(thumbsCfg.Disk.TTLSeconds) * time.Second
-			}
-			clearOnStartup := false
-			if thumbsCfg.Disk.ClearOnStartup != nil {
-				clearOnStartup = *thumbsCfg.Disk.ClearOnStartup
+			if thumbsCfg.Disk.TTL > 0 {
+				diskTTL = thumbsCfg.Disk.TTL
 			}
 			maxItems := thumbsCfg.Disk.MaxItems
 			if maxItems <= 0 {
@@ -217,18 +204,16 @@ func wrapWithCache(baseStorage drivers.Storage, cfg *StorageConfig) (drivers.Sto
 				Enabled:        true,
 				BasePath:       thumbsCfg.Disk.Dir,
 				TTL:            diskTTL,
-				ClearOnStartup: clearOnStartup,
+				ClearOnStartup: thumbsCfg.Disk.ClearOnStartup,
 				MaxSizeMB:      thumbsCfg.Disk.MaxSizeMB,
 				MaxItems:       maxItems,
 			}
 
-			asyncEnabled := true // Default to enabled
-			numWorkers := 4      // Default workers
-			queueSize := 1000    // Default queue size
+			asyncEnabled := true
+			numWorkers := 4
+			queueSize := 1000
 			if thumbsCfg.Disk.AsyncWrite != nil {
-				if thumbsCfg.Disk.AsyncWrite.Enabled != nil {
-					asyncEnabled = *thumbsCfg.Disk.AsyncWrite.Enabled
-				}
+				asyncEnabled = thumbsCfg.Disk.AsyncWrite.Enabled
 				if thumbsCfg.Disk.AsyncWrite.NumWorkers > 0 {
 					numWorkers = thumbsCfg.Disk.AsyncWrite.NumWorkers
 				}

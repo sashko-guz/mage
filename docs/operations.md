@@ -3,11 +3,11 @@
 Operations are applied to images during thumbnail generation. They are passed as a semicolon-separated filter list in the URL.
 
 ```text
-/thumbs/{size}/filters:{op1};{op2};.../path/to/image.jpg
 /thumbs/{size}/f:{op1};{op2};.../path/to/image.jpg
+/t/{size}/f:{op1};{op2};.../path/to/image.jpg
 ```
 
-Both `filters:` and the short alias `f:` are accepted.
+Both `/thumbs/` and `/t/` are accepted. Filter prefix `filters:` and `f:` are both accepted.
 
 Rules:
 

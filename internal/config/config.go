@@ -6,19 +6,24 @@ import (
 	"time"
 )
 
-type SignatureConfig struct {
-	Secret    string
-	Algorithm string
-	Start     int
-	Length    int
+type Config struct {
+	HTTP      HTTPConfig
+	CORS      CORSConfig
+	Signature SignatureConfig
+	Resize    ResizeConfig
+	Metrics   MetricsConfig
+	Health    HealthConfig
+
+	CacheControlResponseHeader string
 }
 
-type CORSConfig struct {
-	AllowOrigin   string
-	AllowMethods  string
-	AllowHeaders  string
-	ExposeHeaders string
-	MaxAge        int
+type MetricsConfig struct {
+	Enabled bool
+	Path    string
+}
+
+type HealthConfig struct {
+	ReadinessTimeout time.Duration
 }
 
 type HTTPConfig struct {
@@ -30,6 +35,21 @@ type HTTPConfig struct {
 	MaxHeaderBytes    int
 }
 
+type CORSConfig struct {
+	AllowOrigin   string
+	AllowMethods  string
+	AllowHeaders  string
+	ExposeHeaders string
+	MaxAge        int
+}
+
+type SignatureConfig struct {
+	Secret    string
+	Algorithm string
+	Start     int
+	Length    int
+}
+
 type ResizeConfig struct {
 	MaxWidth      int
 	MaxHeight     int
@@ -37,22 +57,19 @@ type ResizeConfig struct {
 	MaxInputSize  int
 }
 
-type Config struct {
-	StorageConfigPath          string
-	CacheControlResponseHeader string
-	Signature                  SignatureConfig
-	CORS                       CORSConfig
-	HTTP                       HTTPConfig
-	Resize                     ResizeConfig
-}
-
 func Load() *Config {
 	maxWidth := getEnvInt("MAX_RESIZE_WIDTH", 5120)
 	maxHeight := getEnvInt("MAX_RESIZE_HEIGHT", 5120)
 
 	return &Config{
-		StorageConfigPath:          getEnv("STORAGE_CONFIG_PATH", "./storage.json"),
 		CacheControlResponseHeader: getEnv("CACHE_CONTROL_RESPONSE_HEADER", "public, max-age=31536000, immutable"),
+		Metrics: MetricsConfig{
+			Enabled: getEnvBool("METRICS_ENABLED", true),
+			Path:    getEnv("METRICS_PATH", "/metrics"),
+		},
+		Health: HealthConfig{
+			ReadinessTimeout: getEnvDurationSeconds("HEALTH_READINESS_TIMEOUT_SECONDS", 5),
+		},
 		Signature: SignatureConfig{
 			Secret:    getEnv("SIGNATURE_SECRET", ""),
 			Algorithm: getEnv("SIGNATURE_ALGO", "sha256"),
@@ -84,11 +101,10 @@ func Load() *Config {
 }
 
 func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
-	return value
+	return defaultValue
 }
 
 func getEnvInt(key string, defaultValue int) int {
@@ -96,12 +112,10 @@ func getEnvInt(key string, defaultValue int) int {
 	if value == "" {
 		return defaultValue
 	}
-
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed <= 0 {
 		return defaultValue
 	}
-
 	return parsed
 }
 
@@ -114,11 +128,21 @@ func getEnvIntMin(key string, defaultValue int, minValue int) int {
 	if value == "" {
 		return defaultValue
 	}
-
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed < minValue {
 		return defaultValue
 	}
+	return parsed
+}
 
+func getEnvBool(key string, defaultValue bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return defaultValue
+	}
 	return parsed
 }

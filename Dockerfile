@@ -1,4 +1,4 @@
-ARG GOLANG_VERSION=1.26.0
+ARG GOLANG_VERSION=1.26.2
 FROM golang:${GOLANG_VERSION}-trixie AS builder
 
 ARG VIPS_VERSION=8.18.0
@@ -48,7 +48,7 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o ${GOPATH}/bin/mage ./cmd/server
+RUN go build -o ${GOPATH}/bin/mage ./cmd/mage
 
 FROM debian:trixie-slim AS runtime
 

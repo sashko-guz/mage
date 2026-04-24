@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sashko-guz/mage/internal/logger"
+	"github.com/sashko-guz/mage/internal/pkg/logger"
 )
 
 type LocalStorage struct {
@@ -89,4 +89,10 @@ func (l *LocalStorage) GetObject(ctx context.Context, key string) ([]byte, error
 	}
 
 	return data, nil
+}
+
+// Ping checks if the storage directory is accessible
+func (l *LocalStorage) Ping(ctx context.Context) error {
+	_, err := os.Stat(l.basePath)
+	return err
 }

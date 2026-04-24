@@ -14,6 +14,7 @@ Mage generates thumbnails on-the-fly, supports local/S3 storage backends, and in
 - Local filesystem and S3/S3-compatible storage support
 - Optional HMAC request signature validation
 - Memory + disk caching with async disk writes
+- Prometheus metrics and health check endpoints
 - Docker and docker-compose support
 
 ## Quick Start
@@ -22,16 +23,10 @@ Mage generates thumbnails on-the-fly, supports local/S3 storage backends, and in
 git clone https://github.com/sashko-guz/mage.git
 cd mage
 cp .env.example .env
-cp examples/storage/local.example.json storage.json
-mkdir -p .data .cache/sources .cache/thumbs
-# .data          — store your original source images here
-# .cache/sources — disk cache for processed source files
-# .cache/thumbs  — disk cache for generated thumbnails
-# In .env set STORAGE_ROOT=./.data
-go run ./cmd/server
+# Edit .env: set STORAGE_DRIVER=local and STORAGE_ROOT=/path/to/images
+mkdir -p .cache/sources .cache/thumbs
+go run ./cmd/mage
 ```
-
-Example configs live under `examples/storage/` and the systemd unit example is under `examples/systemd/`.
 
 ## Documentation
 
@@ -41,6 +36,7 @@ Example configs live under `examples/storage/` and the systemd unit example is u
 - [Operations](docs/operations.md)
 - [Signature Generation](docs/signature.md)
 - [Caching](docs/caching.md)
+- [Monitoring](docs/monitoring.md)
 - [S3 HTTP Client Optimization](docs/s3-http-client.md)
 - [Project Structure](docs/project-structure.md)
 

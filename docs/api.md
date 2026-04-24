@@ -3,11 +3,11 @@
 ## URL Format
 
 ```text
-/thumbs/[{signature}/]{width}x{height}/[filters:{filters}/]{path}[/as/{alias.ext}]
 /thumbs/[{signature}/]{width}x{height}/[f:{filters}/]{path}[/as/{alias.ext}]
+/t/[{signature}/]{width}x{height}/[f:{filters}/]{path}[/as/{alias.ext}]
 ```
 
-Both `filters:` and the short alias `f:` are accepted.
+Both `/thumbs/` and short alias `/t/` are accepted. Filter prefix `filters:` and `f:` are both accepted.
 
 ### Components
 

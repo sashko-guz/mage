@@ -1,36 +1,32 @@
 # S3 HTTP Client Optimization
 
-For high-throughput S3 access, configure `s3_http_config` in storage config.
+For high-throughput S3 access, tune the HTTP client via environment variables.
 
-## Example
+## Environment Variables
 
-```json
-{
-  "driver": "s3",
-  "bucket": "${S3_BUCKET}",
-  "region": "${S3_REGION}",
-  "access_key": "${S3_ACCESS_KEY}",
-  "secret_key": "${S3_SECRET_KEY}",
-  "base_url": "${S3_BASE_URL}",
-  "use_path_style": "${S3_USE_PATH_STYLE}",
-  "s3_http_config": {
-    "max_idle_conns": 100,
-    "max_idle_conns_per_host": 100,
-    "max_conns_per_host": 0,
-    "idle_conn_timeout_sec": 90,
-    "connect_timeout_sec": 10,
-    "request_timeout_sec": 30,
-    "response_header_timeout_sec": 10
-  }
-}
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `S3_MAX_IDLE_CONNS` | Max idle connections across all hosts | `100` |
+| `S3_MAX_IDLE_CONNS_PER_HOST` | Max idle connections per host | `100` |
+| `S3_MAX_CONNS_PER_HOST` | Max total connections per host (0 = unlimited) | `0` |
+| `S3_IDLE_CONN_TIMEOUT_SEC` | Idle connection timeout in seconds | `90` |
+| `S3_CONNECT_TIMEOUT_SEC` | TCP connect timeout in seconds | `10` |
+| `S3_REQUEST_TIMEOUT_SEC` | Full request timeout in seconds | `30` |
+| `S3_RESPONSE_HEADER_TIMEOUT_SEC` | Response header wait timeout in seconds | `10` |
+
+## Example Configuration
+
+```env
+# High-throughput tuning
+S3_MAX_IDLE_CONNS=150
+S3_MAX_IDLE_CONNS_PER_HOST=150
+S3_IDLE_CONN_TIMEOUT_SEC=90
+S3_CONNECT_TIMEOUT_SEC=10
+S3_REQUEST_TIMEOUT_SEC=30
 ```
 
-## Options
+## Tuning Tips
 
-- `max_idle_conns` - Max idle connections overall (default: 100)
-- `max_idle_conns_per_host` - Max idle connections per host (default: 100)
-- `max_conns_per_host` - Max total connections per host (`0` = unlimited)
-- `idle_conn_timeout_sec` - Idle connection keepalive timeout
-- `connect_timeout_sec` - TCP connect timeout
-- `request_timeout_sec` - Full request timeout
-- `response_header_timeout_sec` - Response header wait timeout
+- Increase `S3_MAX_IDLE_CONNS_PER_HOST` for high concurrency to single S3 endpoint
+- Set `S3_MAX_CONNS_PER_HOST` to limit resource usage under burst traffic
+- Adjust timeouts based on network latency to your S3 endpoint
